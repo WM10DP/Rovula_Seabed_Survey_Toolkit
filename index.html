@@ -5,11 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Seabed Survey Toolkit</title>
 <!--
-  Seabed Survey Toolkit: four tools in one file, switched with the buttons in the top bar.
+  Seabed Survey Toolkit: five tools in one file, switched with the buttons in the top bar.
     1. Side Scan Run-line Planner      (source block: src-sss)
     2. Multibeam Run-line Planner      (source block: src-mbes)
-    3. Sub-Bottom Profiler Quick View  (source block: src-sbp)
-    4. Point Cloud Geospatial Dashboard (source block: src-cloud)
+    3. Side Scan + Multibeam Planner   (source block: src-combo)  both sonars on one set of lines
+    4. Sub-Bottom Profiler Quick View  (source block: src-sbp)
+    5. Point Cloud Geospatial Dashboard (source block: src-cloud)
   Each tool is a complete page kept in its own <script type="text/plain"> block at the bottom and is
   loaded into its own frame the first time it is opened. The frames isolate the tools from each other:
   the dashboard uses Tailwind (which resets base styles) and the tools reuse element ids such as
@@ -36,7 +37,7 @@
   .stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#f5f7f9}
   .stage iframe[hidden]{display:none}
   .fail{padding:24px;max-width:60ch;color:#fecaca}
-  @media (max-width:1150px){.hint{display:none}}
+  @media (max-width:1700px){.hint{display:none}}
   @media (max-width:760px){.hint{display:none}.switch{width:100%;flex-wrap:wrap}.switch button{flex:1 1 40%;padding:8px 6px;font-size:12px}}
 </style>
 </head>
@@ -44,7 +45,7 @@
 <header class="bar">
   <div class="brand">Seabed Survey Toolkit <span>· geophysical planning and data</span></div>
   <div class="switch" role="tablist" aria-label="Tool" id="switch"></div>
-  <div class="hint">Each tool keeps its inputs and data while you switch · Alt + 1 to 4</div>
+  <div class="hint">Each tool keeps its inputs and data while you switch · Alt + 1 to 5</div>
 </header>
 <main class="stage" id="stage"></main>
 
@@ -2310,7 +2311,963 @@ render();
 </html>
 </script>
 
-<!-- ============================ 3 · SUB-BOTTOM PROFILER QUICK VIEW ============================ -->
+<!-- ============================ 3 · SIDE SCAN + MULTIBEAM SIMULTANEOUS PLANNER ============================ -->
+<script type="text/plain" id="src-combo">
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Side Scan + Multibeam Run-line Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}img{max-width:100%}[hidden]{display:none!important}
+/* Same layout as the Side Scan Run-line Planner: short input panel on the left (sticky on desktop),
+   read-outs on the right: key numbers -> front-view swath -> density and footprint -> checks -> plan -> hours + run-lines. */
+:root{
+  --bg:#F5F7F9; --panel:#FFFFFF; --panel-2:#F4F7F9; --ink:#1D2B33; --muted:#6B7880; --line:#E3E8EC;
+  --ui:#1F6F8B; --ui-soft:#E8F2F6;
+  --accent:#E0962F; --accent-soft:#FBEBD3;
+  --seta:#2F5F8F; --setb:#93B9DA; --hf:#2A9D8F; --nadir:#E2574C; --seabed:#E7D8BB; --water:#F0F6FA;
+  --ok:#2E8B57; --ok-soft:#E4F4EA; --warn:#A06A00; --warn-soft:#FCF1DA; --bad:#C2413A; --bad-soft:#FBE5E2;
+  --fold1:#E2EBF3; --fold2:#A9C5DF; --fold3:#4E7EAD;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --radius:12px;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body)}
+.wrap{max-width:1480px;margin:0 auto;padding-inline:16px;padding-block:26px 56px}
+header.top{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:flex-end;justify-content:space-between;margin-bottom:22px}
+.eyebrow{font:500 .7rem var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ui);margin:0 0 6px}
+h1{font-weight:600;font-size:clamp(1.6rem,2.4vw,2.15rem);line-height:1.1;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:6px 0 0;max-width:64ch;font-size:.93rem}
+.btn{font:500 .84rem var(--f-body);border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 13px;border-radius:999px;cursor:pointer;line-height:1.2}
+.btn:hover{border-color:var(--ui);color:var(--ui)}
+.btn.small{padding:3px 10px;font-size:.75rem}
+:is(.btn,input,select,summary):focus-visible{outline:2px solid var(--ui);outline-offset:2px}
+.app{display:grid;gap:22px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:1060px){
+  .app{grid-template-columns:310px minmax(0,1fr)}
+  .controls{position:sticky;top:calc(env(safe-area-inset-top,0px) + 14px);max-height:calc(100vh - 28px);overflow:auto}
+}
+.controls{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:6px 18px 16px;align-self:start}
+fieldset{border:0;border-top:1px solid var(--line);margin:0;padding:14px 0 8px;min-width:0}
+fieldset:first-of-type{border-top:0}
+legend{font:500 .7rem var(--f-mono);letter-spacing:.13em;text-transform:uppercase;color:var(--muted);padding:0;float:left;width:100%;margin-bottom:6px}
+legend + *{clear:both}
+.f{display:grid;grid-template-columns:minmax(0,1fr) 118px;align-items:center;gap:10px;margin:8px 0}
+.f > label{font-size:.86rem;color:var(--ink);line-height:1.25}
+.f.full{grid-template-columns:minmax(0,1fr)}
+.inp{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--panel);min-width:0}
+.inp:focus-within{border-color:var(--ui);box-shadow:0 0 0 3px var(--ui-soft)}
+.inp input,.inp select{width:100%;min-width:0;border:0;background:transparent;color:var(--ink);font:500 .88rem var(--f-mono);padding:7px 8px;text-align:right;font-variant-numeric:tabular-nums}
+.inp select{text-align:left;font-family:var(--f-body);font-weight:500;cursor:pointer}
+.inp input:focus,.inp select:focus{outline:none}
+.inp .u{font:.74rem var(--f-mono);color:var(--muted);padding-right:9px;white-space:nowrap}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--panel-2);border-radius:9px;padding:3px;gap:3px;margin:8px 0}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{text-align:center;padding:6px 6px;font-size:.82rem;cursor:pointer;color:var(--muted);border-radius:7px}
+.seg input:checked + label{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(29,43,51,.12);font-weight:500}
+.seg input:focus-visible + label{outline:2px solid var(--ui);outline-offset:-2px}
+.chk{display:flex;gap:9px;align-items:center;font-size:.86rem;margin:10px 0 4px;cursor:pointer}
+.chk input{accent-color:var(--ui);width:16px;height:16px}
+.readout{font:.74rem/1.55 var(--f-mono);color:var(--muted);margin:4px 0 2px}
+.readout b{color:var(--ink);font-weight:500}
+.inline-btn{display:flex;justify-content:flex-end;margin-top:-2px}
+.fixed{font-size:.75rem;color:var(--muted);line-height:1.5;margin:8px 0 0}
+.lim{font:.68rem/1.3 var(--f-mono);color:var(--muted);text-align:right;margin:-5px 0 6px}
+.lim.hit{color:var(--warn)}
+.inp.over{border-color:var(--warn);box-shadow:0 0 0 3px var(--warn-soft)}
+main.out{display:grid;gap:22px;min-width:0;align-content:start}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:700px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:13px 16px 14px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.kpi .k{font:500 .68rem var(--f-mono);letter-spacing:.11em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:6px;align-items:center}
+.kpi .v{font-weight:600;font-size:1.65rem;line-height:1.15;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.01em}
+.kpi .v small{font-size:.9rem;font-weight:500;color:var(--muted);margin-left:3px}
+.kpi .s{font-size:.8rem;color:var(--muted);line-height:1.35}
+.kpi.total{background:var(--ui-soft);border-color:transparent}
+.kpi.total .v{color:var(--ui)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;min-width:0}
+.card .head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;align-items:baseline;margin-bottom:12px}
+.card h2{font-weight:600;font-size:1.05rem;margin:0;text-wrap:balance}
+.card h3{font-size:.9rem;font-weight:600;margin:0 0 8px}
+.note{font-size:.8rem;color:var(--muted)}
+.fig{overflow-x:auto}
+.fig svg{display:block;width:100%;height:auto}
+#fvWrap svg{min-width:700px;cursor:crosshair}
+#planWrap svg{min-width:640px}
+.viewopts{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;margin-bottom:10px}
+.viewopts .chk{margin:0;font-size:.8rem;color:var(--muted)}
+.viewopts .cursor{margin-left:auto;font:.74rem var(--f-mono);color:var(--muted);white-space:nowrap}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.78rem;color:var(--muted);margin-top:12px}
+.advice{margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--panel-2);font-size:.85rem;line-height:1.45}
+.advice b{font-weight:600}
+.sw{display:inline-block;width:14px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.towgrid{display:grid;gap:18px 24px;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);align-items:start}
+@media (max-width:980px){.towgrid{grid-template-columns:minmax(0,1fr)}}
+#saveTable td:first-child{white-space:normal}
+@media (min-width:1180px){#checks{grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:30px}}
+.two{display:grid;gap:22px;grid-template-columns:minmax(0,.8fr) minmax(0,1.3fr)}
+@media (max-width:960px){.two{grid-template-columns:minmax(0,1fr)}}
+.pill{display:inline-block;font:500 .66rem var(--f-mono);letter-spacing:.07em;padding:2px 8px;border-radius:999px;text-transform:uppercase;white-space:nowrap;text-align:center}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.info{background:var(--panel-2);color:var(--muted)}
+.checks{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.checks li{display:grid;grid-template-columns:58px minmax(0,1fr);gap:10px;align-items:start;font-size:.85rem;line-height:1.45}
+.checks li .pill{margin-top:2px}
+.checks li b{font-weight:600}
+.tablewrap{overflow:auto;max-height:440px;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:.8rem;font-variant-numeric:tabular-nums}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+#hrsTable td:first-child{white-space:normal;min-width:150px}
+th:first-child,td:first-child,th.l,td.l{text-align:left}
+thead th{position:sticky;top:0;background:var(--panel-2);font:500 .66rem var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);z-index:1}
+tbody tr:last-child td{border-bottom:0}
+tr.sub td{font-weight:600;background:var(--panel-2)}
+tr.tot td{font-weight:600;background:var(--ui-soft);color:var(--ui)}
+td .dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:7px;vertical-align:0}
+.bar{display:flex;height:12px;border-radius:999px;overflow:hidden;margin:2px 0 14px;background:var(--panel-2)}
+.bar span{display:block;height:100%}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toast{font-size:.8rem;color:var(--ok);min-height:1.2em}
+details.how{font-size:.86rem;color:var(--muted)}
+details.how summary{cursor:pointer;color:var(--ink);font-weight:500}
+details.how ul{margin:10px 0 0;padding-left:18px;display:grid;gap:5px;max-width:95ch}
+footer.fine{font-size:.76rem;color:var(--muted);max-width:100ch;margin-top:2px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Simultaneous survey · hull-mounted multibeam + towed side scan</p>
+      <h1>Side Scan + Multibeam Run-line Planner</h1>
+      <p class="sub">One vessel, one set of lines, both sonars recording. The tighter of the two line spacings governs; the planner shows which sensor that is, what the other one gains, and the time saved against two separate surveys.</p>
+    </div>
+  </header>
+
+  <div class="app">
+    <form class="controls" id="form" autocomplete="off">
+      <fieldset>
+        <legend>Multibeam (hull or pole)</legend>
+        <div class="f full"><div class="inp"><select id="mbModel" aria-label="Multibeam model"></select></div></div>
+        <div class="f full"><div class="inp"><select id="mbFreq" aria-label="Multibeam frequency"></select></div></div>
+        <div class="f"><label for="sector">Swath sector</label><div class="inp"><input id="sector" type="number" step="5" min="10"><span class="u">°</span></div></div>
+        <div class="lim" id="lim_sector"></div>
+        <div class="f"><label for="mbOverlap">Overlap between lines</label><div class="inp"><input id="mbOverlap" type="number" step="5" min="0"><span class="u">%</span></div></div>
+        <div class="f"><label for="draft">Sonar head draft</label><div class="inp"><input id="draft" type="number" step="0.1" min="0"><span class="u">m</span></div></div>
+        <div class="f full"><div class="inp"><select id="order" aria-label="IHO S-44 order"></select></div></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Side scan (towed)</legend>
+        <div class="f full"><div class="inp"><select id="ssModel" aria-label="Side scan model"></select></div></div>
+        <div class="f full"><div class="inp"><select id="channel" aria-label="Side scan frequency"></select></div></div>
+        <div class="f"><label for="range">Range per side</label><div class="inp"><input id="range" type="number" step="5" min="10"><span class="u">m</span></div></div>
+        <div class="lim" id="lim_range"></div>
+        <div class="f"><label for="alt">Fish altitude</label><div class="inp"><input id="alt" type="number" step="0.5" min="1"><span class="u">m</span></div></div>
+        <div class="lim" id="lim_alt"></div>
+        <div class="inline-btn"><button class="btn small" type="button" id="alt10">Set to 10 % of range</button></div>
+        <div class="seg" role="radiogroup" aria-label="Side scan coverage">
+          <input type="radio" name="coverage" id="cov200" value="200"><label for="cov200">200 %</label>
+          <input type="radio" name="coverage" id="cov100" value="100"><label for="cov100">100 %</label>
+        </div>
+        <div class="f"><label for="sidelap">Overlap</label><div class="inp"><input id="sidelap" type="number" step="1" min="0"><span class="u">%</span></div></div>
+        <div class="f full"><div class="inp"><select id="cable" aria-label="Tow cable"></select></div></div>
+        <div class="f full"><div class="inp"><select id="dep" aria-label="Depressor or added weight"></select></div></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Survey</legend>
+        <div class="seg" role="radiogroup" aria-label="Survey type">
+          <input type="radio" name="mode" id="modeRoute" value="route"><label for="modeRoute">Pipeline</label>
+          <input type="radio" name="mode" id="modeArea" value="area"><label for="modeArea">Area</label>
+        </div>
+        <div id="routeBox">
+          <div class="f"><label for="routeKm">Pipeline length</label><div class="inp"><input id="routeKm" type="number" step="0.1" min="0.05"><span class="u">km</span></div></div>
+          <div class="f"><label for="corrW">Corridor width</label><div class="inp"><input id="corrW" type="number" step="50" min="10"><span class="u">m</span></div></div>
+        </div>
+        <div id="areaBox" hidden>
+          <div class="f"><label for="areaW">Width (across lines)</label><div class="inp"><input id="areaW" type="number" step="50" min="20"><span class="u">m</span></div></div>
+          <div class="f"><label for="areaL">Length (along lines)</label><div class="inp"><input id="areaL" type="number" step="50" min="50"><span class="u">m</span></div></div>
+        </div>
+        <div class="f"><label for="wd">Water depth</label><div class="inp"><input id="wd" type="number" step="1" min="2"><span class="u">m</span></div></div>
+        <div class="lim" id="lim_wd"></div>
+        <div class="f"><label for="ext">Extend lines past ends</label><div class="inp"><input id="ext" type="number" step="10" min="0"><span class="u">m</span></div></div>
+        <div class="f"><label for="xlines">Cross lines (checks)</label><div class="inp"><input id="xlines" type="number" step="1" min="0"><span class="u">no.</span></div></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Speed and time</legend>
+        <div class="f"><label for="speed">Survey speed (towing)</label><div class="inp"><input id="speed" type="number" step="0.1" min="0.5"><span class="u">kn</span></div></div>
+        <div class="lim" id="lim_speed"></div>
+        <div class="f"><label for="mbSpeed">Speed if multibeam ran alone</label><div class="inp"><input id="mbSpeed" type="number" step="0.5" min="1"><span class="u">kn</span></div></div>
+        <div class="f"><label for="pre">Mobilisation, patch test, deployment</label><div class="inp"><input id="pre" type="number" step="0.5" min="0"><span class="u">h</span></div></div>
+        <div class="f"><label for="cont">Weather contingency</label><div class="inp"><input id="cont" type="number" step="1" min="0"><span class="u">%</span></div></div>
+        <p class="fixed">Fixed: flat seabed, equidistant beams, sound speed 1,500 m/s, tow point 5 m above the sea, 10°/min turns while towing, 300 m straight run before SOL, 100 m overrun after the fish passes EOL, sound velocity cast every 6 h, 10 % infill. The comparison with separate surveys uses the same mobilisation time for each and 120°/min turns for multibeam alone.</p>
+        <div class="inline-btn"><button class="btn small" type="button" id="resetBtn">Reset inputs</button></div>
+      </fieldset>
+    </form>
+
+    <main class="out">
+      <section class="kpis" id="kpis" aria-label="Key numbers"></section>
+
+      <section class="card" aria-labelledby="fvTitle">
+        <div class="head"><h2 id="fvTitle">Front view · both swaths on the shared lines</h2><span class="note" id="fvNote"></span></div>
+        <div class="fig" id="fvWrap"></div>
+        <div class="legend" id="fvLegend"></div>
+        <div class="advice" id="fvAdvice"></div>
+      </section>
+
+      <section class="card" aria-labelledby="cmpTitle">
+        <div class="head"><h2 id="cmpTitle">What each sensor needs, and what it gets</h2><span class="note" id="cmpNote"></span></div>
+        <div class="towgrid">
+          <div class="tablewrap"><table id="cmpTable"></table></div>
+          <div>
+            <h3>Simultaneous against separate surveys</h3>
+            <div class="tablewrap"><table id="saveTable"></table></div>
+            <p class="note" id="saveNote" style="margin:10px 0 0"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="chkTitle">
+        <div class="head"><h2 id="chkTitle">Design checks</h2><span class="note" id="chkCount"></span></div>
+        <ul class="checks" id="checks"></ul>
+      </section>
+
+      <section class="card" aria-labelledby="planTitle">
+        <div class="head"><h2 id="planTitle">Run-line plan</h2><span class="note" id="planNote"></span></div>
+        <div class="fig" id="planWrap"></div>
+        <div class="legend" id="planLegend"></div>
+        <div class="actions" style="margin-top:12px"><button class="btn" type="button" id="pngBtn" hidden>Download run-line plan (PNG)</button></div>
+      </section>
+
+      <div class="two">
+        <section class="card" aria-labelledby="hrsTitle">
+          <div class="head"><h2 id="hrsTitle">Operation hours</h2><span class="note" id="hrsNote"></span></div>
+          <div class="bar" id="hrsBar" aria-hidden="true"></div>
+          <div class="tablewrap"><table id="hrsTable"></table></div>
+        </section>
+        <section class="card" aria-labelledby="linesTitle">
+          <div class="head"><h2 id="linesTitle">Run-lines</h2><span class="note">Shared tracks in run order · → up-KP, ← down-KP</span></div>
+          <div class="tablewrap"><table id="linesTable"></table></div>
+          <div class="actions" style="margin-top:12px">
+            <button class="btn" type="button" id="copyBtn">Copy summary</button>
+            <button class="btn" type="button" id="csvBtn" hidden>Download run-lines (CSV)</button>
+            <button class="btn" type="button" id="dxfBtn" hidden>Download run-lines (DXF in .zip)</button>
+            <button class="btn" type="button" id="svgBtn" hidden>Download front view (SVG)</button>
+            <span class="toast" id="toast" role="status"></span>
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <details class="how">
+          <summary>How the numbers are worked out</summary>
+          <ul>
+            <li><b>Each sensor's own spacing.</b> Multibeam: swath = 2 × (depth − draft) × tan(sector ÷ 2), cut back if the outer beam would pass the frequency's reach; spacing = swath × (1 − overlap). Side scan: swath = 2 × √(range² − altitude²); spacing = swath × (1 − overlap), halved for 200 % coverage.</li>
+            <li><b>Shared spacing</b> is the smaller of the two, rounded down to a whole metre. The sensor that set it is the governing sensor; the other one ends up with more overlap than it asked for.</li>
+            <li><b>Number of lines</b> is the smallest set, centred on the centre line, that gives the multibeam 100 % and the side scan its coverage target across the full width.</li>
+            <li><b>Nadir gap.</b> The side scan cannot image the strip under the fish (width from the inner beam edge: array depression + half the 50° vertical beam). The planner tests whether neighbouring side scan lines image that strip, and separately whether the multibeam swath covers it with bathymetry and backscatter.</li>
+            <li><b>Speed</b> must satisfy both: 3 side scan pings on a 1 m target (EdgeTech: 4.8 kn at 100 m range, doubled in the 4200-MP's High Speed Mode), and 3 multibeam pings along the smallest feature of the chosen IHO order. Multibeam ping rate = sound speed ÷ (2 × 1.1 × slant range to the swath edge), capped at the sonar's maximum.</li>
+            <li><b>Tow.</b> Cable out and layback come from the same steady tow-cable model as the Side Scan Planner (cable drag coefficient 1.5, likely range 1.2–1.8). The fish trails the multibeam by the layback, so on each line the vessel runs on by layback + overrun after the multibeam passes EOL.</li>
+            <li><b>Turns.</b> Radius = speed ÷ rate of turn, at 10°/min with a fish in the water. Lines are run in alternate directions, taking the cheapest turn each time.</li>
+            <li><b>Hours</b>: on-line, run-in, overrun and turn time at survey speed, cross lines, 10 % infill, a sound velocity cast every 6 h started, and your mobilisation time. Contingency is applied to that subtotal.</li>
+            <li><b>Separate surveys</b> are planned the same way with each sensor's own spacing: side scan at the towing speed, multibeam at its own speed with no tow.</li>
+          </ul>
+        </details>
+      </section>
+      <footer class="fine">Sonar figures are the same nominal manufacturer values used in the Side Scan and Multibeam planners (EdgeTech 4200 and 4125 manuals; R2Sonic, Kongsberg, NORBIT and Teledyne datasheets); multibeam reach figures marked est. there are planning estimates. Cable shape is modelled, not read from EdgeTech's towing charts. The plan assumes a flat seabed: on a slope, design the multibeam spacing at the shallow edge. Exports use a local route grid (X = offset from CL, Y = KP). Not affiliated with any manufacturer. A planning aid: check final settings against your project specification.</footer>
+    </main>
+  </div>
+</div>
+
+<\script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>
+<\script>
+(function(){
+"use strict";
+const D2R = Math.PI/180, KN = 0.514444, RHO = 1025, G = 9.81, CSND = 1500;
+const $ = id => document.getElementById(id);
+
+/* ---------- multibeam models and IHO orders (same data as the Multibeam Planner) ---------- */
+const md = (tx, rx, sec, rng, e, x) => Object.assign({tx, rx, sec, rng, e:!!e}, x||{});
+const kb = (tx4, rx4, list) => Object.fromEntries(list.map(([f, sec, rng, e]) => [f, md(+(tx4*400/f).toFixed(2), +(rx4*400/f).toFixed(2), sec, rng, e, {scaled:f !== 400}) ]));
+const KB_FULL = [[200,170,600,false],[300,170,450,true],[400,140,300,true],[600,120,120,true],[700,30,60,true]];
+const MBM = {
+  "R2-2022": {label:"R2Sonic Sonic 2022", nb:1024, prf:60, minD:0.5, rate:100, rateTxt:"100 m (4,000 m option)", def:400,
+    modes:{200:md(2,2,160,500), 400:md(1,1,160,250,true), 450:md(0.9,0.9,160,200,true), 700:md(0.6,0.6,160,80,true,{opt:"UHR option"})}},
+  "R2-2024": {label:"R2Sonic Sonic 2024", nb:1024, prf:60, minD:0.5, rate:100, rateTxt:"100 m (4,000 / 6,000 m options)", def:400,
+    modes:{200:md(2,1,160,500), 400:md(1,0.5,160,250,true), 450:md(0.9,0.45,160,200,true), 700:md(0.6,0.3,160,80,true,{opt:"UHR option"})}},
+  "EM2042-04": {label:"Kongsberg EM 2042 · 0.4° × 0.7°", nb:1024, prf:50, minD:0.5, def:300, ds:true, secDual:220, dualTxt:"Dual RX (up to 220°)", modes:kb(0.4,0.7,KB_FULL)},
+  "EM2042-07": {label:"Kongsberg EM 2042 · 0.7° × 0.7°", nb:1024, prf:50, minD:0.5, def:300, ds:true, secDual:220, dualTxt:"Dual RX (up to 220°)", modes:kb(0.7,0.7,KB_FULL)},
+  "EM2040M2-04": {label:"Kongsberg EM 2040 MKII · 0.4° × 0.7°", nb:512, prf:50, minD:0.5, rate:6000, rateTxt:"6,000 m (50 m version also)", def:300, ds:true, secDual:220, dualTxt:"Dual RX (up to 220°)", modes:kb(0.4,0.7,KB_FULL)},
+  "EM2040M2-07": {label:"Kongsberg EM 2040 MKII · 0.7° × 0.7°", nb:512, prf:50, minD:0.5, rate:6000, rateTxt:"6,000 m (50 m version also)", def:300, ds:true, secDual:220, dualTxt:"Dual RX (up to 220°)", modes:kb(0.7,0.7,KB_FULL)},
+  "EM2040C": {label:"Kongsberg EM 2040C MKII · 1° × 1°", nb:512, prf:50, minD:0.5, rate:50, rateTxt:"50 m (1,500 m version also)", def:300, ds:true, secDual:200, dualTxt:"Dual head (up to 200°)",
+    modes:kb(1,1,[[200,140,520,false],[300,140,400,true],[400,120,250,true]])},
+  "EM2040P": {label:"Kongsberg EM 2040P MKII · 1° × 1°", nb:512, prf:50, minD:0.5, rate:30, rateTxt:"30 m", def:300, ds:true,
+    modes:kb(1,1,[[200,170,550,false],[300,170,400,true],[400,140,250,true],[600,120,100,true],[700,30,50,true]])},
+  "B44": {label:"NORBIT WINGHEAD B44", nb:1024, prf:60, minD:0.2, rate:4500, rateTxt:"4,500 m (6,000 m version also)", def:400, curved:true,
+    modes:{200:md(1.8,1.0,210,400,false,{scaled:true}), 400:md(0.9,0.5,210,275,true), 700:md(0.5,0.3,210,80,true)}},
+  "T50P": {label:"Teledyne SeaBat T50-P", nb:1024, prf:50, minD:0.5, rate:50, rateTxt:"50 m", def:400,
+    modes:{200:md(2,1,170,575,false,{secED:150}), 300:md(1.3,0.7,170,400,true,{secED:150, scaled:true}), 400:md(1,0.5,170,300,false,{secED:150})}},
+  "T50R": {label:"Teledyne SeaBat T50-R", nb:1024, prf:50, minD:0.5, rate:50, rateTxt:"50 m", def:400,
+    modes:{200:md(2,1,170,575,false,{secED:150}), 300:md(1.3,0.7,170,400,true,{secED:150, scaled:true}), 400:md(1,0.5,170,300,false,{secED:150})}}
+};
+/* ---------- IHO S-44 Edition 6 orders ---------- */
+const ORDERS = {
+  "EX": {label:"IHO Exclusive Order", a:0.15, b:0.0075, thu:d => 1, feat:d => 0.5, cov:200, covTxt:"200 % feature search and 200 % bathymetric coverage"},
+  "SP": {label:"IHO Special Order", a:0.25, b:0.0075, thu:d => 2, feat:d => 1, cov:100, covTxt:"100 % feature search and 100 % bathymetric coverage"},
+  "1A": {label:"IHO Order 1a", a:0.5, b:0.013, thu:d => 5 + 0.05*d, feat:d => d <= 40 ? 2 : 0.1*d, cov:100, covTxt:"100 % feature search"},
+  "1B": {label:"IHO Order 1b", a:0.5, b:0.013, thu:d => 5 + 0.05*d, feat:null, cov:5, covTxt:"5 % bathymetric coverage, no feature search"},
+  "2":  {label:"IHO Order 2",  a:1.0, b:0.023, thu:d => 20 + 0.1*d, feat:null, cov:5, covTxt:"5 % bathymetric coverage, no feature search"}
+};
+
+/* ---------- side scan models, tow cables and tow model (same data as the Side Scan Planner) ---------- */
+const RMAX = {100:500, 300:230, 400:150, 600:120, 900:75};
+const B_SP = {100:1.50, 300:0.50, 400:0.40, 600:0.26, 900:0.20};   // 4200-SP horizontal beam (deg)
+const B_HDM = {100:0.64, 300:0.28, 400:0.30, 600:0.26, 900:0.20};  // 4200-MP, High Definition Mode (single pulse)
+const B_HSM = {100:1.26, 300:0.54, 400:0.40, 600:0.34, 900:0.30};  // 4200-MP, High Speed Mode (multi-pulse)
+const BASE4200 = {family:"4200", depth:2000, wWater:36, cda:0.008, dep:26, vbw:50, vSafe:12, vMin:1, ping100:4.8, cableMax:6000};
+const BASE4125 = {family:"4125", depth:200, wWater:11.3, cda:0.006, dep:33, vbw:50, vSafe:8, vMin:1, ping100:4.8, cableMax:150, cableMaxTel:600, mp:false};
+function m4200(kind, lf, hf){
+  const mp = kind === "MP", c = f => ({f, max:RMAX[f], beam:(mp ? B_HDM : B_SP)[f], beamMP: mp ? B_HSM[f] : null});
+  return Object.assign({}, BASE4200, {label:`EdgeTech 4200-${kind} · ${lf}/${hf} kHz`, mp, ch:{LF:c(lf), HF:c(hf)}});
+}
+const SSM = {
+  "4200MP-100/400": m4200("MP",100,400), "4200MP-300/600": m4200("MP",300,600), "4200MP-300/900": m4200("MP",300,900),
+  "4200SP-100/400": m4200("SP",100,400), "4200SP-300/600": m4200("SP",300,600), "4200SP-300/900": m4200("SP",300,900),
+  "4125-400/900":  Object.assign({}, BASE4125, {label:"EdgeTech 4125 · 400/900 kHz",  ch:{LF:{f:400,max:150,beam:0.46},HF:{f:900,max:75,beam:0.28}}}),
+  "4125-600/1600": Object.assign({}, BASE4125, {label:"EdgeTech 4125 · 600/1600 kHz", ch:{LF:{f:600,max:120,beam:0.33},HF:{f:1600,max:35,beam:0.20}}})
+};
+const DEF_RANGE = {100:400, 300:200, 400:150, 600:100, 900:60, 1600:30};
+// Tow cables: the types EdgeTech models in its "Towing Characteristics" documents for the 4200 and 4125.
+// d = diameter (mm), w = weight in seawater (kg/m), wl = working load (kN). A320327 and A302799 are datasheet values;
+// the others are typical values for that construction.
+const CABLES = {
+  "A320327": {d:8.19,  w:0.222, wl:17.1, fam:["4200","4125"], label:'A320327 · 0.32" double-armoured coax'},
+  "A302799": {d:11.43, w:0.379, wl:17.8, fam:["4200","4125"], label:'A302799 · 0.45" double-armoured coax'},
+  "A301241": {d:17.27, w:0.87,  fam:["4200"], label:'A301241 · 0.68" double-armoured coax'},
+  "168181":  {d:8.1,   w:0.05,  fam:["4200"], label:'168181 · 0.32" soft tow cable'},
+  "23080":   {d:9.5,   w:0.05,  fam:["4125"], label:'23080 · 0.375" Kevlar soft tow'},
+  "A304874": {d:6.35,  w:0.135, fam:["4125"], maxLen:250, label:'A304874 · 0.25" double-armoured'}
+};
+const DEPRESS = {"4200":[["none","No depressor"],["wing","Depressor wing fitted"]], "4125":[["none","No added weight"],["keel","15 lb keel weight fitted"]]};
+const CN_NOM = 1.5, CN_LO = 1.2, CN_HI = 1.8, CF_TAN = 0.008;   // cable normal drag (nominal, likely band) and tangential friction
+
+function depressor(kind, M, Vkn){
+  if (kind === "wing" && M.family === "4200"){
+    const lbf = Vkn <= 10 ? 85*Math.pow(Vkn/5, 1.585) : 255*Math.pow(Vkn/10, 2.07), lift = lbf*4.448;
+    return {kg:7.7, lift, drag:lift/4};
+  }
+  if (kind === "keel" && M.family === "4125") return {kg:6.2, lift:0, drag:0};
+  return {kg:0, lift:0, drag:0};
+}
+// Steady 2-D tow cable, integrated from the fish up to the tow point (midpoint method, exact stop at the tow point).
+// State: tension T and cable angle phi above horizontal. Per metre of cable: normal drag 0.5 rho Cn d (V sin phi)^2,
+// tangential friction 0.5 rho Cf pi d (V cos phi)^2, weight in water w.
+function towSolve(o){
+  const V = Math.max(o.Vkn, 0.1)*KN, d = o.d/1000, w = o.w*G;
+  const Df = 0.5*RHO*o.cda*V*V + (o.drag||0), Wf = o.fishKg*G + (o.lift||0);
+  let T = Math.hypot(Df, Wf), phi = Math.atan2(Wf, Df), s = 0, x = 0, z = 0, k = 0, reached = false;
+  const target = o.depth + o.sheave, sMax = o.sMax || 6000, ds = 0.2, pts = [[0,0]];
+  const kN = 0.5*RHO*o.cn*d*V*V, kT = 0.5*RHO*CF_TAN*Math.PI*d*V*V;
+  const dT = ph => kT*Math.cos(ph)*Math.cos(ph) + w*Math.sin(ph);
+  const dP = (t, ph) => (w*Math.cos(ph) - kN*Math.sin(ph)*Math.sin(ph))/t;
+  while (s < sMax){
+    const Tm = T + dT(phi)*ds/2, pm = phi + dP(T, phi)*ds/2;
+    const dz = Math.sin(pm)*ds, dx = Math.cos(pm)*ds;
+    if (o.sStop === undefined && z + dz >= target){
+      const f = (target - z)/dz; x += dx*f; z = target; s += ds*f; T += dT(pm)*ds*f; phi += dP(Tm, pm)*ds*f; reached = true; break;
+    }
+    T += dT(pm)*ds; phi += dP(Tm, pm)*ds; x += dx; z += dz; s += ds;
+    if (++k % 10 === 0) pts.push([x, z]);
+    if (o.sStop !== undefined && s >= o.sStop - 1e-9) break;
+  }
+  pts.push([x, z]);
+  return {cable:s, layback:x, rise:z, tension:T/1000, topAngle:phi/D2R, pts, reached};
+}
+/* ---------- drawing: palette ---------- */
+const VARS = ["bg","panel","panel-2","ink","muted","line","accent","accent-soft","seta","setb","hf","nadir","seabed","water","fold1","fold2","fold3"];
+const pageC = Object.fromEntries(VARS.map(v => [v, `var(--${v})`]));
+function resolvedC(){ const cs = getComputedStyle(document.documentElement); return Object.fromEntries(VARS.map(v => [v, cs.getPropertyValue(`--${v}`).trim()])); }
+const MONO = "IBM Plex Mono, ui-monospace, Menlo, monospace";
+const T = (x, y, s, C, o={}) => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" style="fill:${o.fill||C.ink};font:${o.w||400} ${o.size||11}px ${MONO}" text-anchor="${o.a||"start"}"${o.dom?` dominant-baseline="${o.dom}"`:""}>${esc(s)}</text>`;
+const Rc = (x, y, w, h, st) => `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0,w).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" style="${st}"/>`;
+const Ln = (x1, y1, x2, y2, st) => `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" style="${st}"/>`;
+function dimH(x1, x2, y, label, C, above=true, col){
+  const st = `stroke:${col||C.ink};stroke-width:1`;
+  return Ln(x1,y,x2,y,st) + Ln(x1,y-4,x1,y+4,st) + Ln(x2,y-4,x2,y+4,st) +
+    T((x1+x2)/2, above ? y-5 : y+14, label, C, {a:"middle", size:12, w:500, fill:col});
+}
+function niceStep(span, target){ const raw = span/target, mg = Math.pow(10, Math.floor(Math.log10(raw))); for (const k of [1,2,2.5,5,10]) if (k*mg >= raw) return k*mg; return 10*mg; }
+
+/* ---------- helpers ---------- */
+const fmt = (x, d=0) => (isFinite(x) ? Number(x).toLocaleString("en-US",{minimumFractionDigits:d, maximumFractionDigits:d}) : "–");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pad4 = n => String(Math.round(Math.abs(n))).padStart(4,"0");
+const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
+const floorTo = (x, st) => Math.floor(x/st + 1e-9)*st;
+const r5 = x => Math.round(x/5)*5;
+const sideTxt = (v, d=0) => Math.abs(v) < 0.05 ? "CL" : `${v < 0 ? "P" : "S"} ${fmt(Math.abs(v), d)}`;
+function defRange(c){ return Math.min(DEF_RANGE[c.f] ?? Math.round(c.max*0.8/5)*5, c.max); }
+function turnLen(dx, dy, R){
+  if (dx >= 2*R) return Math.PI*R + (dx - 2*R) + dy;
+  if (dx >= 1.6*R) return Math.PI*dx/2 + dy;
+  return R*(2*Math.PI - 2*Math.asin(Math.min(1, dx/(2*R)))) + dy;
+}
+// number of lines whose swath covers x. xin > 0 with nadirCounts = false leaves out the strip under each line
+function foldAt(x, offs, xo, xin, nadirCounts){ let n = 0; for (const L of offs){ const d = Math.abs(x - L); if (d <= xo + 1e-9 && (nadirCounts || d >= xin)) n++; } return n; }
+
+const NUM_IDS = ["sector","draft","range","alt","routeKm","corrW","areaL","areaW","wd","sidelap","mbOverlap","ext","xlines","speed","mbSpeed","pre","cont"];
+const SEL_IDS = ["mbModel","mbFreq","order","ssModel","channel","cable","dep"];
+const RADIO = {mode:["modeRoute","modeArea"], coverage:["cov200","cov100"]};
+const FIXED = {settle:300, runout:100, rot:10, sheave:5, svpInt:6, svpDur:0.5, infill:10, dayH:24, e0:0, n0:0, brg:0, mbRot:120, mbRunin:100, mbRunout:20, target:1, npings:3};
+const DEFAULTS = {mbModel:"R2-2024", mbFreq:"400", sector:120, mbOverlap:20, draft:1.5, order:"SP",
+  ssModel:"4200MP-300/600", channel:"LF", range:100, alt:10, coverage:"200", sidelap:25, cable:"A320327", dep:"none",
+  mode:"route", routeKm:5, corrW:500, areaW:1000, areaL:2000, wd:40, ext:100, xlines:2, speed:3.5, mbSpeed:5, pre:6, cont:15};
+const STATIC_LIM = {draft:[0,20,"m"], routeKm:[0.1,1000,"km"], corrW:[20,20000,"m"], areaL:[50,1000000,"m"], areaW:[20,20000,"m"],
+  sidelap:[0,50,"%"], mbOverlap:[0,80,"%"], ext:[0,5000,"m"], xlines:[0,20,""], mbSpeed:[1,12,"kn"], pre:[0,72,"h"], cont:[0,100,"%"]};
+const LIM_IDS = ["sector","range","alt","wd","speed", ...Object.keys(STATIC_LIM)];
+
+function models(p){
+  const MB = MBM[p.mbModel] || MBM["R2-2024"], mm = MB.modes[p.mbFreq] || MB.modes[MB.def];
+  const SM = SSM[p.ssModel] || SSM["4200MP-300/600"], ch = SM.ch[p.channel] || SM.ch.LF;
+  return {MB, mm, SM, ch};
+}
+function specLimits(raw){
+  const {MB, mm, SM, ch} = models(raw), L = {}, v = {};
+  const take = (id, lo, hi, unit, why) => { L[id] = [lo, hi, unit, why]; const x = raw[id]; v[id] = isFinite(x) ? clamp(x, lo, hi) : x; };
+  for (const [id, [lo, hi, u]] of Object.entries(STATIC_LIM)) take(id, lo, hi, u, "");
+  take("sector", 10, mm.secED || mm.sec, "°", `${MB.label.split(" · ")[0]} at ${raw.mbFreq} kHz`);
+  take("range", 10, ch.max, "m", `${fmt(ch.f)} kHz maximum`);
+  const R = isFinite(v.range) ? v.range : defRange(ch), altCap = floorTo(R*0.25, 0.5);
+  const alt0 = isFinite(raw.alt) ? clamp(raw.alt, 1, altCap) : altCap/2.5, dr = isFinite(v.draft) ? v.draft : 0;
+  const hiMB = dr + mm.rng, hiSS = SM.depth + alt0, lo = Math.max(dr + 1, alt0 + 1);
+  take("wd", lo, Math.max(lo, Math.min(hiMB, hiSS)), "m", hiMB <= hiSS ? `multibeam reaches about ${fmt(mm.rng)} m at ${raw.mbFreq} kHz` : `towfish rated to ${fmt(SM.depth)} m`);
+  const WD = isFinite(v.wd) ? v.wd : lo;
+  take("alt", 1, Math.max(1, Math.min(altCap, floorTo(WD - 1, 0.5))), "m", "up to 25 % of range");
+  take("speed", SM.vMin, Math.min(4, SM.vSafe), "kn", "towed side scan practice");
+  return {L, v};
+}
+function readParams(){
+  const p = {};
+  for (const id of NUM_IDS){ const x = parseFloat($(id).value); p[id] = isFinite(x) ? x : NaN; }
+  for (const id of SEL_IDS) p[id] = $(id).value;
+  for (const [k, ids] of Object.entries(RADIO)) p[k] = ($(ids.find(i => $(i).checked)) || $(ids[0])).value;
+  const raw = {}; LIM_IDS.forEach(id => raw[id] = p[id]);
+  const {L, v} = specLimits(p);
+  Object.assign(p, v, FIXED, {_lim:L, _raw:raw});
+  return p;
+}
+function populateMb(){
+  const MB = MBM[$("mbModel").value] || MBM["R2-2024"], cur = $("mbFreq").value;
+  $("mbFreq").innerHTML = Object.entries(MB.modes).map(([f, m]) => `<option value="${f}">${f} kHz · ${m.rx}° × ${m.tx}°${m.opt ? " · " + m.opt : ""}</option>`).join("");
+  $("mbFreq").value = MB.modes[cur] ? cur : String(MB.def);
+}
+function populateSs(){
+  const SM = SSM[$("ssModel").value] || SSM["4200MP-300/600"], cur = $("channel").value || "LF";
+  $("channel").innerHTML = ["LF","HF"].map(k => `<option value="${k}">${k} · ${fmt(SM.ch[k].f)} kHz · max ${fmt(SM.ch[k].max)} m</option>`).join("");
+  $("channel").value = cur;
+  const curCab = $("cable").value, ok = Object.entries(CABLES).filter(([, c]) => c.fam.includes(SM.family));
+  $("cable").innerHTML = ok.map(([k, c]) => `<option value="${k}">${esc(c.label)}</option>`).join("");
+  $("cable").value = ok.some(([k]) => k === curCab) ? curCab : (SM.family === "4125" ? "23080" : "A320327");
+  const curDep = $("dep").value, dl = DEPRESS[SM.family];
+  $("dep").innerHTML = dl.map(([k, t]) => `<option value="${k}">${t}</option>`).join("");
+  $("dep").value = dl.some(([k]) => k === curDep) ? curDep : "none";
+}
+function writeParams(v){
+  if (v.mbModel) { $("mbModel").value = v.mbModel; populateMb(); }
+  if (v.ssModel) { $("ssModel").value = v.ssModel; populateSs(); }
+  for (const [k, val] of Object.entries(v)){
+    if (k === "mbModel" || k === "ssModel") continue;
+    if (RADIO[k]) { RADIO[k].forEach(id => $(id).checked = ($(id).value === String(val))); continue; }
+    const el = $(k); if (el) el.value = val;
+  }
+  if (!$("mbFreq").value) populateMb();
+  if (!$("channel").value || !$("cable").value) populateSs();
+  syncVisibility();
+}
+function syncVisibility(){ const area = $("modeArea").checked; $("routeBox").hidden = area; $("areaBox").hidden = !area; }
+
+/* ---------- one survey plan: lines in run order and hours ---------- */
+// c: {prefix, speed, rot, runin, runout, lb, nX, svpInt, pre}. Line a..b is the track over which data are wanted;
+// the vessel joins runin before a and runs on lb + runout past b (lb = layback of a towed fish, 0 without one).
+function buildPlan(offs, c, p, length, half){
+  const Rt = (c.speed*1852/60)/(c.rot*D2R), ext = p.ext || 0, tail = c.lb + c.runout;
+  const names = new Set(), uniq = nm => { let s = nm; while (names.has(s)) s += "b"; names.add(s); return s; };
+  const mk = (name, kind, a, b, x) => { const len = Math.hypot(b[0]-a[0], b[1]-a[1]), u = [(b[0]-a[0])/len, (b[1]-a[1])/len];
+    return Object.assign({name, kind, a, b, len, u, join:[a[0]-u[0]*c.runin, a[1]-u[1]*c.runin], vend:[b[0]+u[0]*tail, b[1]+u[1]*tail], vessel:c.runin + len + tail}, x); };
+  const main = offs.map((off, i) => { const dir = i % 2 === 0 ? 1 : -1;
+    return mk(uniq(Math.abs(off) < 0.05 ? `${c.prefix}-CL` : `${c.prefix}-${off < 0 ? "P" : "S"}${pad4(off)}`), "main",
+      [off, dir > 0 ? -ext : length + ext], [off, dir > 0 ? length + ext : -ext], {dir, off}); });
+  const cost = (a, b) => a.kind === "main" && b.kind === "main"
+    ? (a.dir === b.dir ? Math.abs(a.off - b.off) + a.len + 2*Math.PI*Rt : turnLen(Math.abs(a.off - b.off), Math.abs(a.vend[1] - b.join[1]), Rt))
+    : Math.hypot(a.vend[0]-b.join[0], a.vend[1]-b.join[1]) + Math.PI*Rt/2;
+  // greedy order: alternate directions, cheapest turn first (wide turns with a fish in tow favour a racetrack)
+  const seq = [main[0]], used = new Array(main.length).fill(false); used[0] = true; let cur = 0;
+  for (let k = 1; k < main.length; k++){
+    let best = -1, bc = Infinity;
+    for (let j = 0; j < main.length; j++){ if (used[j] || main[j].dir === main[cur].dir) continue; const cc = cost(main[cur], main[j]); if (cc < bc){ bc = cc; best = j; } }
+    if (best < 0) best = used.indexOf(false);
+    used[best] = true; seq.push(main[best]); cur = best;
+  }
+  const nX = Math.round(c.nX || 0), last = seq[seq.length-1], xr = Math.max(half, Math.abs(offs[0]));
+  if (nX > 0){
+    let kps = Array.from({length:nX}, (_, j) => length*(j + 0.5)/nX); if (last.dir > 0) kps.reverse();
+    let side = last.off >= 0 ? 1 : -1;
+    kps.forEach((kp, j) => { seq.push(mk(uniq(`XL-${String(j+1).padStart(2,"0")}`), "cross", [side*xr, kp], [-side*xr, kp], {dir:0, kp})); side = -side; });
+  }
+  seq.forEach((l, i) => { l.order = i + 1; l.turn = i < seq.length - 1 ? cost(l, seq[i+1]) : 0; });
+  const kmh = c.speed*1.852, Hh = m => m/1000/kmh, sum = (arr, f) => arr.reduce((t, x) => t + f(x), 0);
+  const mainL = seq.filter(l => l.kind === "main"), crossL = seq.filter(l => l.kind === "cross"), h = {};
+  h.data = Hh(sum(mainL, l => l.len)); h.run = Hh(sum(mainL, l => l.vessel - l.len)); h.cross = Hh(sum(crossL, l => l.vessel)); h.turns = Hh(sum(seq, l => l.turn));
+  h.survey = h.data + h.run + h.cross + h.turns;
+  h.svpN = Math.max(1, Math.ceil(h.survey/c.svpInt)); h.svp = h.svpN*p.svpDur; h.infill = h.survey*p.infill/100; h.pre = c.pre || 0;
+  h.subtotal = h.pre + h.survey + h.svp + h.infill; h.cont = h.subtotal*(p.cont || 0)/100; h.total = h.subtotal + h.cont; h.days = h.total/p.dayH;
+  return {seq, Rt, hrs:h, n:offs.length, nX, dataKm:sum(seq, l => l.len)/1000};
+}
+
+/* ---------- main calculation ---------- */
+function compute(p){
+  const {MB, mm, SM, ch} = models(p), O = ORDERS[p.order] || ORDERS.SP, errors = [];
+  ["sector","draft","range","alt","wd","sidelap","mbOverlap","speed","mbSpeed"].forEach(k => { if (!isFinite(p[k])) errors.push(`Enter a value for ${k}.`); });
+  const corridor = p.mode === "route" ? p.corrW : p.areaW, length = p.mode === "route" ? p.routeKm*1000 : p.areaL;
+  if (!(corridor > 0 && length > 0)) errors.push("Enter the survey length and width.");
+  if (errors.length) return {errors};
+  const H = p.wd - p.draft, half = corridor/2;
+  if (!(H >= 0.5)) return {errors:["The water depth must be greater than the sonar head draft."]};
+  if (!(p.range > p.alt && p.alt < p.wd)) return {errors:["The fish altitude must be less than both the side scan range and the water depth."]};
+
+  // multibeam swath (flat seabed), cut back to the frequency's slant-range reach
+  let aE = Math.min(p.sector/2, 89)*D2R, mbLim = false;
+  if (H/Math.cos(aE) > mm.rng){ if (H >= mm.rng) return {errors:[`The seabed is beyond the multibeam's reach at ${p.mbFreq} kHz. Choose a lower frequency.`]}; aE = Math.acos(H/mm.rng); mbLim = true; }
+  const xm = H*Math.tan(aE), Wm = 2*xm, slant = H/Math.cos(aE), sMB = Wm*(1 - clamp(p.mbOverlap, 0, 95)/100);
+  // side scan swath and nadir gap
+  const R = p.range, h = p.alt, inner = (SM.dep + SM.vbw/2)*D2R, xin = h/Math.tan(inner), xo = Math.sqrt(R*R - h*h), Ws = 2*xo;
+  const two = p.coverage === "200", need = two ? 2 : 1, o = clamp(p.sidelap, 0, 95)/100, sSS = two ? Ws*(1 - o)/2 : Ws*(1 - o);
+  const rd = s => s >= 5 ? Math.floor(s) : Math.max(0.1, Math.floor(s*10)/10);
+  const S = rd(Math.min(sMB, sSS)), gov = sMB <= sSS ? "mb" : "ss", sMBr = rd(sMB), sSSr = rd(sSS);
+
+  const linesFor = (sp, kind) => {
+    const ok = offs => { const st = Math.max(0.1, Math.min(sp/40, 5));
+      const at = x => (kind === "ss" || foldAt(x, offs, xm, 0, true) >= 1) && (kind === "mb" || foldAt(x, offs, xo, xin, true) >= need);
+      for (let x = -half; x < half; x += st) if (!at(x)) return false; return at(half); };
+    for (let n = Math.max(1, Math.floor(corridor/sp) - 2); n <= 600; n++){ const offs = Array.from({length:n}, (_, i) => (i - (n-1)/2)*sp); if (ok(offs)) return offs; }
+    return null;
+  };
+  const offsets = linesFor(S, "both"), offsSS = linesFor(sSSr, "ss"), offsMB = linesFor(sMBr, "mb");
+  if (!offsets || !offsSS || !offsMB) return {errors:["More than 600 lines would be needed. Increase the range or sector, reduce the overlaps, or reduce the survey width."]};
+  // what each sensor actually gets at the shared spacing
+  let minSS = Infinity, minMB = Infinity;
+  for (let x = -half; x <= half + 1e-6; x += Math.max(0.1, corridor/1000)){ const xx = Math.min(x, half); minSS = Math.min(minSS, foldAt(xx, offsets, xo, xin, true)); minMB = Math.min(minMB, foldAt(xx, offsets, xm, 0, true)); }
+  const mbOv = (Wm - S)/Wm, ssOv = two ? (Ws - 2*S)/Ws : (Ws - S)/Ws;
+  // is the strip under each fish imaged by other side scan lines?
+  let nadirSS = offsets.length > 1;
+  for (const L of offsets){ for (let k = 0; k <= 8 && nadirSS; k++){ const x = L - xin + 2*xin*k/8; if (x < -half || x > half) continue;
+    if (foldAt(x, offsets.filter(q => q !== L), xo, xin, false) < 1) nadirSS = false; } }
+  const nadirMB = xm >= xin;
+
+  // speed limits
+  const V = p.speed*KN, prf1 = CSND/(2*R), pings1 = prf1*p.target/V, hsm = SM.mp && pings1 < p.npings;
+  const ssPings = pings1*(hsm ? 2 : 1), vmaxSS1 = SM.ping100*100/R, vmaxSS = vmaxSS1*(SM.mp ? 2 : 1);
+  const prfMB = Math.min(MB.prf, CSND/(2*1.1*slant)), feat = O.feat ? O.feat(p.wd) : null, dy = V/prfMB, dx = Wm/MB.nb;
+  const vmaxMB = feat ? feat*prfMB/3/KN : Infinity, mbPings = feat ? feat/dy : NaN, mbAcross = feat ? feat/dx : NaN;
+  const dens = MB.nb*prfMB/(V*Wm), vLim = Math.min(vmaxSS, vmaxMB);
+
+  // tow: cable out and layback for the fish depth
+  const dp = depressor(p.dep, SM, p.speed), cab = CABLES[p.cable] || CABLES.A320327, fishDepth = p.wd - h;
+  const tow = cn => towSolve({Vkn:p.speed, sheave:p.sheave, d:cab.d, w:cab.w, fishKg:SM.wWater + dp.kg, cda:SM.cda, lift:dp.lift, drag:dp.drag, depth:fishDepth, cn});
+  const t0 = tow(CN_NOM), tLo = tow(CN_LO), tHi = tow(CN_HI), CO = r5(t0.cable), LB = r5(t0.layback);
+
+  const cfgTow = {speed:p.speed, rot:p.rot, runin:p.settle, runout:p.runout, lb:t0.reached ? LB : 0, svpInt:p.svpInt, pre:p.pre};
+  const plan = buildPlan(offsets, Object.assign({prefix:"SM", nX:p.xlines}, cfgTow), p, length, half);
+  const ssAlone = buildPlan(offsSS, Object.assign({prefix:"SS", nX:0}, cfgTow), p, length, half);
+  const mbAlone = buildPlan(offsMB, {prefix:"MB", nX:p.xlines, speed:p.mbSpeed, rot:p.mbRot, runin:p.mbRunin, runout:p.mbRunout, lb:0, svpInt:p.svpInt, pre:p.pre}, p, length, half);
+  const sepTotal = ssAlone.hrs.total + mbAlone.hrs.total;
+
+  return {p, MB, mm, SM, ch, O, cab, H, half, corridor, length, ext:p.ext || 0, aE, mbLim, xm, Wm, slant, sMB, sMBr, R, h, xin, xo, Ws, two, need, sSS, sSSr, S, gov,
+    offsets, exts:offsets.map(off => ({off})), n:offsets.length, nSS:offsSS.length, nMB:offsMB.length, minSS, minMB, mbOv, ssOv, nadirSS, nadirMB,
+    ssPings, hsm, vmaxSS1, vmaxSS, prfMB, feat, dy, dx, vmaxMB, mbPings, mbAcross, dens, vLim, fishDepth, t0, tLo, tHi, CO, LB, coLo:r5(tLo.cable), coHi:r5(tHi.cable), lbLo:r5(tLo.layback), lbHi:r5(tHi.layback),
+    seq:plan.seq, Rt:plan.Rt, hrs:plan.hrs, nX:plan.nX, dataKm:plan.dataKm, ssAlone, mbAlone, sepTotal, saving:sepTotal - plan.hrs.total, errors:[]};
+}
+
+/* ---------- checks ---------- */
+function checks(r){
+  const p = r.p, out = [], add = (s, t) => out.push([s, t]), pc = x => fmt(x*100, 1);
+  const gName = r.gov === "ss" ? "Side scan" : "Multibeam", oName = r.gov === "ss" ? "multibeam" : "side scan";
+  add("info", `<b>${gName} governs the line spacing</b> at ${fmt(r.S, r.S < 5 ? 1 : 0)} m. Alone, the side scan would need ${fmt(r.sSSr)} m and the multibeam ${fmt(r.sMBr)} m, so the ${oName} runs ${r.gov === "ss" ? fmt(r.n - r.nMB) : fmt(r.n - r.nSS)} more line${Math.abs(r.gov === "ss" ? r.n - r.nMB : r.n - r.nSS) === 1 ? "" : "s"} than it needs and gains overlap.`);
+  add(r.mbLim ? "warn" : "ok", r.mbLim
+    ? `<b>Multibeam swath is range-limited</b> to ${fmt(r.aE*2/D2R, 1)}° (${fmt(r.Wm, 1)} m): the ${fmt(p.sector)}° sector would pass the ${fmt(r.mm.rng)} m reach at ${p.mbFreq} kHz${r.mm.e ? " (est.)" : ""}.`
+    : `<b>Multibeam: full ${fmt(p.sector)}° sector reaches the seabed</b>, ${fmt(r.Wm, 1)} m wide (${fmt(r.Wm/r.H, 2)} × height) with ${pc(r.mbOv)} % overlap at the shared spacing.`);
+  if (r.aE/D2R > 65 + 1e-6) add("info", `<b>Multibeam outer beams at ${fmt(r.aE/D2R, 1)}° from nadir.</b> Many specifications accept soundings only to ±60–65°; check yours before counting on the full swath.`);
+  if (r.O.cov === 200) add(r.minMB >= 2 ? "ok" : "bad", r.minMB >= 2 ? `<b>${r.O.label}</b> asks for 200 % multibeam coverage, which the shared spacing gives.` : `<b>${r.O.label} asks for 200 % multibeam coverage.</b> The shared spacing gives ${fmt(r.minMB*100)} %. Set the multibeam overlap to 50 % or more.`);
+  else add("ok", `<b>Multibeam coverage</b> is at least ${fmt(r.minMB*100)} % across the ${fmt(r.corridor)} m width (${r.O.label}: ${r.O.covTxt}).`);
+  add(r.minSS >= r.need ? "ok" : "bad", `<b>Side scan coverage</b> is at least ${fmt(r.minSS*100)} % across the width against the ${r.two ? "200" : "100"} % target, with ${pc(r.ssOv)} % overlap${r.two ? " within each 100 % set" : ""}.`);
+  const ap = r.h/r.R*100;
+  add(ap >= 10 - 1e-9 && ap <= 15 + 1e-9 ? "ok" : (ap >= 8 && ap <= 20 ? "warn" : "bad"), `<b>Fish altitude ${fmt(r.h, 1)} m is ${fmt(ap, 1)} % of range.</b> EdgeTech recommends 10–15 % (${fmt(r.R*0.1, 1)}–${fmt(r.R*0.15, 1)} m).`);
+  add(r.nadirSS ? "ok" : (r.nadirMB ? "warn" : "bad"), r.nadirSS
+    ? `<b>Nadir gap is imaged by side scan.</b> The ${fmt(2*r.xin, 1)} m strip under each fish lies inside the swaths of neighbouring lines.`
+    : r.nadirMB ? `<b>Nadir gap has no side scan imagery,</b> but the multibeam covers the ${fmt(2*r.xin, 1)} m strip under each fish with bathymetry and backscatter. If the specification asks for side scan imagery at nadir, use 200 % coverage or more overlap.`
+    : `<b>Nadir gap is not covered.</b> Neither neighbouring side scan lines nor the multibeam swath cover the ${fmt(2*r.xin, 1)} m strip under each fish.`);
+  // speed
+  if (r.ssPings < p.npings - 1e-6) add("warn", `<b>Side scan: above the 3-ping speed.</b> At ${fmt(r.R)} m range the limit is ${fmt(r.vmaxSS, 1)} kn${r.SM.mp ? " in High Speed Mode" : ""}; at ${fmt(p.speed, 1)} kn a 1 m target gets ${fmt(r.ssPings, 1)} pings. Slow down or shorten the range.`);
+  else if (r.hsm) add("warn", `<b>Side scan: run High Speed Mode (multi-pulse).</b> Single pulse allows ${fmt(r.vmaxSS1, 1)} kn at ${fmt(r.R)} m range; HSM allows ${fmt(r.vmaxSS, 1)} kn.`);
+  else add("ok", `<b>Side scan: ${fmt(r.ssPings, 1)} pings</b> on a 1 m target at ${fmt(p.speed, 1)} kn (limit ${fmt(r.vmaxSS1, 1)} kn at ${fmt(r.R)} m range).`);
+  if (r.feat){ const ft = fmt(r.feat, r.feat % 1 ? 1 : 0);
+    add(r.mbPings >= 3 ? "ok" : "warn", `<b>Multibeam: ${fmt(r.mbPings, 1)} pings along</b> a ${ft} m feature at ${fmt(p.speed, 1)} kn (ping rate ${fmt(r.prfMB, 1)} Hz, limit ${fmt(r.vmaxMB, 1)} kn). ${r.mbPings >= 3 ? "The towing speed leaves plenty of margin." : "Slow down or narrow the sector."}`);
+    add(r.mbAcross >= 3 ? "ok" : "warn", `<b>Multibeam: ${fmt(r.mbAcross, 1)} soundings across</b> a ${ft} m feature (${fmt(r.dx*100, 0)} cm spacing with ${fmt(r.MB.nb)} equidistant soundings). ${r.mbAcross >= 3 ? "Meets the 3-across working rule." : "Below the 3-across working rule: narrow the sector."}`); }
+  else add("info", `<b>${r.O.label}</b> has no feature-detection requirement. Multibeam density is ${fmt(r.dens, r.dens < 10 ? 1 : 0)} soundings per m² at ${fmt(p.speed, 1)} kn.`);
+  // acoustic interference
+  const fS = r.ch.f, fM = +p.mbFreq, ratio = Math.max(fS, fM)/Math.min(fS, fM);
+  add(ratio < 1.25 ? "bad" : ratio < 1.6 ? "warn" : "ok", ratio < 1.25
+    ? `<b>Frequencies clash:</b> side scan ${fmt(fS)} kHz and multibeam ${fmt(fM)} kHz are within 25 % of each other. Expect cross-talk in both records. Change one frequency, or trigger both from one sync unit.`
+    : ratio < 1.6 ? `<b>Frequencies are close:</b> side scan ${fmt(fS)} kHz, multibeam ${fmt(fM)} kHz. Test for interference during mobilisation and be ready to sync the triggers.`
+    : `<b>Frequencies are well apart:</b> side scan ${fmt(fS)} kHz, multibeam ${fmt(fM)} kHz. Check both records for interference at the start of the first line all the same.`);
+  // tow
+  add(r.fishDepth <= r.SM.depth ? "ok" : "bad", `<b>Fish depth ${fmt(r.fishDepth, 1)} m</b> against a ${fmt(r.SM.depth)} m depth rating.`);
+  if (r.fishDepth < p.draft + 3) add("warn", `<b>The fish flies only ${fmt(r.fishDepth, 1)} m below the surface,</b> close to the vessel's wake and propeller wash. Expect noisy side scan data; a shorter range and lower altitude put the fish deeper.`);
+  const cabName = r.cab.label.split(" · ")[0];
+  if (!r.t0.reached) add("bad", `<b>This cable cannot reach the fish depth</b> at ${fmt(p.speed, 1)} kn: the ${cabName} cable flattens out first. Use a heavier cable, fit a depressor or slow down. Layback is not included in the hours.`);
+  else { const lim = r.SM.family === "4125" ? Math.min(r.SM.cableMaxTel, r.cab.maxLen || 1e9) : r.SM.cableMax;
+    add(r.coHi <= (r.SM.family === "4125" ? r.SM.cableMax : lim) ? "ok" : (r.coHi <= lim ? "warn" : "bad"), `<b>Cable out ${fmt(r.CO)} m</b> (likely ${fmt(r.coLo)}–${fmt(r.coHi)} m), layback ${fmt(r.LB)} m (likely ${fmt(r.lbLo)}–${fmt(r.lbHi)} m).${r.SM.family === "4125" ? (r.coHi <= r.SM.cableMax ? " Within the 150 m maximum for a 4125 without telemetry." : r.coHi <= lim ? ` Needs the 4125 telemetry option (150 m without it, ${fmt(lim)} m with it).` : ` Exceeds the ${fmt(lim)} m maximum for a 4125 on this cable.`) : ""}`);
+    add("info", `<b>The side scan record lags the multibeam by ${fmt(r.LB)} m</b> along track. On each line the vessel runs ${fmt(r.LB + p.runout)} m past EOL so the fish reaches it, and the multibeam logs that extra length. Position the fish with USBL or the layback in the navigation software.`); }
+  add("info", `<b>Turns with the fish in tow:</b> radius about ${fmt(r.Rt)} m at ${fmt(p.speed, 1)} kn and ${fmt(p.rot)}°/min. Multibeam logged in the turns is usually rejected. Haul in or speed up before turning so a fish flown low does not sink towards the seabed.`);
+  if (r.nX === 0) add("warn", `<b>No cross lines.</b> Run at least one or two across the main lines to check the multibeam depths against each other.`);
+  else add("info", `<b>Cross lines are run with the fish in tow</b> and counted at towing speed. Recovering the fish first and running them at multibeam speed is often quicker; compare on site.`);
+  return out;
+}
+
+/* ---------- front view ---------- */
+function frontSVG(r, C){
+  const p = r.p, VW = 1100, padL = 96, padR = 26, plotW = VW - padL - padR;
+  const maxOff = Math.max(...r.offsets.map(Math.abs)), half = Math.max(r.half, maxOff + Math.max(r.xo, r.xm))*1.04;
+  const sx = plotW/(2*half), X = m => padL + (m + half)*sx;
+  const top = 62, seabed = 242, vs = (seabed - top)/p.wd, yFish = seabed - r.h*vs, yHead = top + p.draft*vs;
+  const rowH = 16, gap = 10, many = r.n > 24;
+  const sets = r.two ? [r.offsets.filter((_, i) => i % 2 === 0), r.offsets.filter((_, i) => i % 2 === 1)] : [r.offsets];
+  let y = seabed + 26;
+  const rows = sets.map((s, i) => ({s, y:y + i*(rowH + gap), col:i === 0 ? C.seta : C.setb, label:r.two ? (i === 0 ? "Side scan A" : "Side scan B") : "Side scan"}));
+  y += rows.length*(rowH + gap);
+  const mbY = y; y += rowH + gap + 4;
+  const fSS = y; y += rowH + gap; const fMB = y; y += rowH;
+  const ay = y + 14, VH = ay + 26;
+  let g = Rc(0, 0, VW, VH, `fill:${C.panel}`);
+  g += Rc(padL, top, plotW, seabed - top, `fill:${C.water}`);
+  g += Ln(padL, top, padL + plotW, top, `stroke:${C.seta};stroke-width:1.2`);
+  g += T(padL + plotW, top - 6, "sea surface", C, {a:"end", fill:C.muted, size:10});
+  for (const s of [-1, 1]){ const xx = X(s*r.half); g += Ln(xx, top, xx, fMB + rowH, `stroke:${C.muted};stroke-width:1;stroke-dasharray:5 4`); }
+  g += T(X(r.half) - 4, top + 12, p.mode === "route" ? "corridor edge" : "area edge", C, {a:"end", fill:C.muted, size:10});
+  g += Ln(X(0), top, X(0), fMB + rowH, `stroke:${C.accent};stroke-width:1;stroke-dasharray:2 3`);
+  // multibeam fans first, side scan beams on top
+  for (const L of r.offsets) g += `<polygon points="${X(L).toFixed(1)},${yHead.toFixed(1)} ${X(L - r.xm).toFixed(1)},${seabed} ${X(L + r.xm).toFixed(1)},${seabed}" style="fill:${C.hf};fill-opacity:.10;stroke:${C.hf};stroke-opacity:.7;stroke-width:.9"/>`;
+  sets.forEach((s, si) => { const col = si === 0 ? C.seta : C.setb;
+    for (const L of s){
+      for (const sg of [-1, 1]) g += `<polygon points="${X(L).toFixed(1)},${yFish.toFixed(1)} ${X(L + sg*r.xin).toFixed(1)},${seabed} ${X(L + sg*r.xo).toFixed(1)},${seabed}" style="fill:${col};fill-opacity:.14;stroke:${col};stroke-opacity:.8;stroke-width:.9"/>`;
+      if (!many){ const x = X(L);
+        g += `<path d="M${(x-11).toFixed(1)},${top} L${(x+11).toFixed(1)},${top} L${(x+7).toFixed(1)},${(yHead).toFixed(1)} L${(x-7).toFixed(1)},${(yHead).toFixed(1)} Z" style="fill:${C.ink};fill-opacity:.55"/>`;
+        g += Ln(x, yHead, x, yFish - 3, `stroke:${C.muted};stroke-width:.8;stroke-dasharray:2 3`); }
+      g += `<ellipse cx="${X(L).toFixed(1)}" cy="${yFish.toFixed(1)}" rx="6.5" ry="2.6" style="fill:${col}"/>`;
+      g += Rc(X(L - r.xin), seabed - 1, 2*r.xin*sx, 4, `fill:${C.nadir}`);
+    } });
+  g += Rc(padL, seabed, plotW, 6, `fill:${C.seabed}`);
+  g += T(padL + plotW, seabed + 18, `seabed · water depth ${fmt(p.wd)} m · fish ${fmt(r.h, 1)} m above it`, C, {a:"end", fill:C.muted, size:10});
+  if (sx*r.S >= 52) r.offsets.forEach(L => { g += T(X(L), top - 6, sideTxt(L).replace(" ", ""), C, {a:"middle", size:10.5, fill:C.muted}); });
+  const mi = Math.floor((r.n - 1)/2), L1 = r.offsets[mi], L2 = r.offsets[mi + 1];
+  if (L2 !== undefined) g += dimH(X(L1), X(L2), top - 26, `shared spacing ${fmt(r.S, r.S < 5 ? 1 : 0)} m`, C);
+  // side scan swath rows with overlap bands and nadir gaps
+  rows.forEach(rw => {
+    g += T(padL - 8, rw.y + rowH/2, rw.label, C, {a:"end", fill:rw.col, w:600, size:10.5, dom:"middle"});
+    for (const L of rw.s) g += Rc(X(L - r.xo), rw.y, 2*r.xo*sx, rowH, `fill:${rw.col};fill-opacity:.5;stroke:${rw.col};stroke-width:.8`);
+    const ss = [...rw.s].sort((a, b) => a - b);
+    for (let i = 0; i < ss.length - 1; i++){ const o0 = ss[i+1] - r.xo, o1 = ss[i] + r.xo; if (o1 > o0) g += Rc(X(o0), rw.y, (o1 - o0)*sx, rowH, `fill:${C.accent};fill-opacity:.85`); }
+    for (const L of rw.s) g += Rc(X(L - r.xin), rw.y, 2*r.xin*sx, rowH, `fill:${C.nadir}`);
+  });
+  g += T(padL - 8, mbY + rowH/2, "Multibeam", C, {a:"end", fill:C.hf, w:600, size:10.5, dom:"middle"});
+  for (const L of r.offsets) g += Rc(X(L - r.xm), mbY, 2*r.xm*sx, rowH, `fill:${C.hf};fill-opacity:.4;stroke:${C.hf};stroke-width:.8`);
+  for (let i = 0; i < r.n - 1; i++){ const o0 = r.offsets[i+1] - r.xm, o1 = r.offsets[i] + r.xm; if (o1 > o0) g += Rc(X(o0), mbY, (o1 - o0)*sx, rowH, `fill:${C.accent};fill-opacity:.6`); }
+  // coverage fold strips
+  const foldCol = n => n <= 0 ? null : n === 1 ? C.fold1 : n === 2 ? C.fold2 : C.fold3, st = Math.max(0.25, half/700);
+  const strip = (yy, label, fn) => { g += T(padL - 8, yy + rowH/2, label, C, {a:"end", w:600, size:10.5, dom:"middle"});
+    let x0 = -half, cur = null;
+    for (let x = -half; x <= half + st; x += st){ const f = x > half ? -1 : fn(x);
+      if (cur === null){ cur = f; x0 = x; continue; }
+      if (f !== cur){ const c = foldCol(cur); if (c) g += Rc(X(x0), yy, (x - x0)*sx + 0.3, rowH, `fill:${c}`); x0 = x; cur = f; } }
+    g += Rc(padL, yy, plotW, rowH, `fill:none;stroke:${C.line};stroke-width:1`); };
+  strip(fSS, "SSS cover", x => foldAt(x, r.offsets, r.xo, r.xin, false));
+  strip(fMB, "MBES cover", x => foldAt(x, r.offsets, r.xm, 0, true));
+  const stp = niceStep(2*half, 8);
+  for (let v = -Math.floor(half/stp)*stp; v <= half; v += stp){ g += Ln(X(v), fMB + rowH, X(v), fMB + rowH + 4, `stroke:${C.muted}`); g += T(X(v), ay, sideTxt(v), C, {a:"middle", size:10, fill:C.muted}); }
+  g += T(padL + plotW, ay + 14, `horizontal true scale · vertical ×${fmt(vs/sx, 1)}`, C, {a:"end", size:9.5, fill:C.muted});
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VW} ${VH.toFixed(0)}" role="img" aria-label="Front view of multibeam and side scan swaths on the shared lines">${g}</svg>`;
+}
+function planSVG(r, C){
+  const VW = 1100, padL = 70, padR = 34, padT = 40, seq = r.seq, L = r.length, half = r.half;
+  const allY = seq.flatMap(l => [l.join[1], l.vend[1], l.a[1], l.b[1]]), allO = seq.flatMap(l => [l.join[0], l.vend[0]]);
+  const tp = Math.min(160, r.Rt*0.8), yMin = Math.min(...allY, 0) - tp, yMax = Math.max(...allY, L) + tp;
+  const oMax = Math.max(half, ...allO.map(Math.abs))*1.1;
+  const plotW = VW - padL - padR, sx = plotW/(yMax - yMin), plotH = Math.min(400, Math.max(210, 2*oMax*sx)), sy = plotH/(2*oMax), VH = padT + plotH + 54;
+  const X = yy => padL + (yy - yMin)*sx, Y = off => padT + (off + oMax)*sy, P = q => [X(q[1]), Y(q[0])];
+  let g = Rc(0, 0, VW, VH, `fill:${C.panel}`);
+  if (r.ext > 0) g += Rc(X(-r.ext), Y(-half), (L + 2*r.ext)*sx, 2*half*sy, `fill:${C["panel-2"]};stroke:${C.line};stroke-dasharray:4 3`);
+  g += Rc(X(0), Y(-half), L*sx, 2*half*sy, `fill:${C.water};stroke:${C.muted};stroke-width:1`);
+  g += Ln(X(0), Y(0), X(L), Y(0), `stroke:${C.accent};stroke-width:1.4;stroke-dasharray:6 4`);
+  g += dimH(X(0), X(L), Y(-half) - 7, `length ${fmt(L)} m`, C);
+  // turns
+  for (let i = 0; i < seq.length - 1; i++){ const a = seq[i], b = seq[i+1], A = P(a.vend), B = P(b.join);
+    const k = Math.max(16, Math.min(60, Math.hypot(B[0]-A[0], B[1]-A[1])*0.4 + 12));
+    const ua = [a.u[1], a.u[0]], ub = [b.u[1], b.u[0]], n1 = Math.hypot(ua[0]*sx, ua[1]*sy) || 1, n2 = Math.hypot(ub[0]*sx, ub[1]*sy) || 1;
+    const c1 = [A[0] + ua[0]*sx/n1*k, A[1] + ua[1]*sy/n1*k], c2 = [B[0] - ub[0]*sx/n2*k, B[1] - ub[1]*sy/n2*k];
+    g += `<path d="M${A[0].toFixed(1)},${A[1].toFixed(1)} C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${B[0].toFixed(1)},${B[1].toFixed(1)}" style="fill:none;stroke:${C.muted};stroke-width:.8;stroke-opacity:.6;stroke-dasharray:2 3"/>`; }
+  const showNum = seq.length <= 46;
+  seq.forEach(l => { const col = l.kind === "cross" ? C.hf : (l.dir > 0 ? C.seta : C.setb), A = P(l.a), B = P(l.b), J = P(l.join), E = P(l.vend);
+    g += Ln(J[0], J[1], A[0], A[1], `stroke:${C.muted};stroke-width:1;stroke-dasharray:4 3`) + Ln(B[0], B[1], E[0], E[1], `stroke:${C.muted};stroke-width:1;stroke-dasharray:4 3`);
+    g += Ln(A[0], A[1], B[0], B[1], `stroke:${col};stroke-width:2`);
+    const dn = Math.hypot(B[0]-A[0], B[1]-A[1]) || 1, ux = (B[0]-A[0])/dn, uy = (B[1]-A[1])/dn;
+    g += `<path d="M${(B[0]-ux*9-uy*4.5).toFixed(1)},${(B[1]-uy*9+ux*4.5).toFixed(1)} L${B[0].toFixed(1)},${B[1].toFixed(1)} L${(B[0]-ux*9+uy*4.5).toFixed(1)},${(B[1]-uy*9-ux*4.5).toFixed(1)}" style="fill:none;stroke:${col};stroke-width:2"/>`;
+    if (showNum) g += l.kind === "cross" ? T(A[0] + 5, A[1] + (uy > 0 ? 12 : -5), String(l.order).padStart(2,"0"), C, {size:9.5, fill:col, w:600})
+      : T(A[0] + ux*6, A[1] - 4, String(l.order).padStart(2,"0"), C, {a: ux > 0 ? "start" : "end", size:9.5, fill:col, w:600}); });
+  const ls = Math.max(1, Math.ceil(16/(r.S*sy)));
+  r.exts.forEach((e, i) => { if (i % ls === 0) g += T(padL-8, Y(e.off), Math.abs(e.off) < 0.05 ? "CL" : `${e.off < 0 ? "P" : "S"} ${fmt(Math.abs(e.off))}`, C, {a:"end", size:9.5, fill:C.muted, dom:"middle"}); });
+  const by = padT + plotH + 16, kps = [0, L]; if (r.ext > 0) kps.push(-r.ext, L + r.ext);
+  const stp = niceStep(L, Math.max(1, L*sx/110)); for (let v = stp; v < L - stp*0.6; v += stp) kps.push(v);
+  [...new Set(kps.map(v => Math.round(v)))].forEach(v => { if (r.ext > 0 && Math.abs(v) > 0 && Math.abs(X(v) - X(v < L/2 ? (v < 0 ? 0 : -r.ext) : (v > L ? L : L + r.ext))) < 58 && (v < 0 || v > L)) return;
+    g += Ln(X(v), padT+plotH, X(v), padT+plotH+5, `stroke:${C.muted}`); g += T(X(v), by, `KP ${(v/1000).toFixed(3)}`, C, {a:"middle", size:9.5, fill:C.muted}); });
+  const aspect = sy/sx;
+  g += T(padL, VH-10, aspect > 1.4 || aspect < 0.7 ? "Schematic: cross-track scale is stretched for readability" : "Plan at true scale", C, {size:9.5, fill:C.muted});
+  g += T(VW-padR, VH-10, `${r.p.mode === "route" ? "corridor" : "area"} ${fmt(r.corridor)} m wide × ${fmt(L)} m long (${fmt(r.corridor*L/1e6,2)} km²)${r.ext > 0 ? ` · lines extend ${fmt(r.ext)} m past each end` : ""}`, C, {a:"end", size:9.5, fill:C.muted});
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VW} ${VH.toFixed(0)}" role="img" aria-label="Plan of run-lines">${g}</svg>`;
+}
+
+
+function showLimits(p){
+  for (const id of LIM_IDS){
+    const el = $(id), [lo, hi, unit, why] = p._lim[id], raw = p._raw[id];
+    el.min = lo; el.max = hi;
+    const nf = x => fmt(x, Math.abs(x % 1) > 1e-9 ? 1 : 0);
+    const hit = isFinite(raw) && (raw < lo - 1e-9 || raw > hi + 1e-9);
+    el.closest(".inp").classList.toggle("over", hit);
+    const box = $("lim_" + id), range = `${nf(lo)} to ${nf(hi)} ${unit}`;
+    if (box){ box.textContent = hit ? `Limited to ${nf(p[id])} ${unit}${why ? " · " + why : ""}` : `${range}${why ? " · " + why : ""}`; box.classList.toggle("hit", hit); }
+    el.title = hit ? `Limited to ${nf(p[id])} ${unit}` : `Allowed ${range}`;
+  }
+}
+function commitLimits(){
+  const p = readParams();
+  for (const id of LIM_IDS){ const raw = p._raw[id], [lo, hi] = p._lim[id];
+    if (isFinite(raw) && (raw < lo - 1e-9 || raw > hi + 1e-9)) $(id).value = +p[id].toFixed(2); }
+}
+
+
+/* ---------- render ---------- */
+let LAST = null;
+function render(){
+  const p = readParams(); syncVisibility(); showLimits(p);
+  const r = compute(p);
+  if (r.errors.length){ $("kpis").innerHTML = `<div class="kpi" style="grid-column:1/-1"><div class="k">Needs input</div><div class="s">${r.errors.map(esc).join("<br>")}</div></div>`; return; }
+  LAST = r; save();
+  const hr = r.hrs, chk = checks(r), nFail = chk.filter(q => q[0] === "bad").length, nWarn = chk.filter(q => q[0] === "warn").length;
+  const pill = (s, t) => `<span class="pill ${s}">${t}</span>`, pc = x => fmt(x*100, 1), sp = fmt(r.S, r.S < 5 ? 1 : 0);
+  const vOk = p.speed <= r.vLim + 1e-9;
+  $("kpis").innerHTML = [
+    ["Shared run-lines", `${r.n}${r.nX ? `<small>+ ${r.nX} cross</small>` : ""}`, `${fmt(r.dataKm, 1)} km of line · alone: SSS ${r.nSS}, MBES ${r.nMB}`, ""],
+    ["Line spacing", `${sp}<small>m</small>`, `SSS alone ${fmt(r.sSSr)} m · MBES alone ${fmt(r.sMBr)} m`, pill("info", r.gov === "ss" ? "side scan governs" : "multibeam governs")],
+    ["Swaths", `${fmt(r.Ws)}<small>/ ${fmt(r.Wm)} m</small>`, `side scan / multibeam · overlap ${pc(r.ssOv)} % / ${pc(r.mbOv)} %`, r.nadirSS ? pill("ok", "nadir imaged") : r.nadirMB ? pill("warn", "nadir by MBES") : pill("bad", "nadir open")],
+    ["Speed limit", `${fmt(r.vLim, 1)}<small>kn</small>`, `SSS ${fmt(r.vmaxSS, 1)} kn · MBES ${isFinite(r.vmaxMB) ? fmt(r.vmaxMB, 1) + " kn" : "no limit"} · planned ${fmt(p.speed, 1)} kn`, vOk ? pill("ok", "within") : pill("warn", "too fast")],
+    ["Cable out / layback", r.t0.reached ? `${fmt(r.CO)}<small>/ ${fmt(r.LB)} m</small>` : "–", r.t0.reached ? `fish depth ${fmt(r.fishDepth, 1)} m · side scan lags by the layback` : "this cable cannot reach the fish depth", ""],
+    ["Operation time", `${fmt(hr.total, 1)}<small>h</small>`, `${fmt(hr.days, 2)} day · ${r.saving >= 0 ? "saves" : "costs"} ${fmt(Math.abs(r.saving), 1)} h against separate surveys`, "", "total"]
+  ].map(([k, v, s, pl, cls]) => `<div class="kpi ${cls || ""}"><div class="k"><span>${k}</span>${pl}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  $("fvWrap").innerHTML = frontSVG(r, pageC);
+  $("fvNote").textContent = `${r.MB.label.split(" · ")[0]} ${p.mbFreq} kHz + ${r.SM.label.split(" · ")[0]} ${fmt(r.ch.f)} kHz · ${r.n} lines`;
+  $("fvLegend").innerHTML = [["var(--hf)","Multibeam swath"],["var(--seta)", r.two ? "Side scan set A" : "Side scan swath"], ...(r.two ? [["var(--setb)","Side scan set B (interleaved)"]] : []),
+    ["var(--accent)","Overlap band"],["var(--nadir)","Side scan nadir gap"],["var(--fold1)","100 %"],["var(--fold2)","200 %"],["var(--fold3)","300 %+"]]
+    .map(([c, t]) => `<span><span class="sw" style="background:${c}"></span>${esc(t)}</span>`).join("");
+  $("fvAdvice").innerHTML = `<b>${r.gov === "ss" ? "Side scan" : "Multibeam"} sets the spacing at ${sp} m.</b> ` + (r.gov === "ss"
+    ? `The multibeam would be content with ${fmt(r.sMBr)} m, so it gets ${pc(r.mbOv)} % overlap instead of ${fmt(p.mbOverlap)} %. To make the two meet, widen the side scan range${r.two ? ", accept 100 % side scan coverage" : ""} or narrow the multibeam sector for better soundings.`
+    : `The side scan would be content with ${fmt(r.sSSr)} m, so it gets ${pc(r.ssOv)} % overlap instead of ${fmt(p.sidelap)} %. To make the two meet, widen the multibeam sector if the specification allows, or shorten the side scan range for better resolution at no extra lines.`);
+
+  // comparison
+  $("cmpNote").textContent = `At ${fmt(p.wd)} m water depth`;
+  const rows = [
+    ["Swath on the seabed", `${fmt(r.Ws)} m`, `${fmt(r.Wm, 1)} m`],
+    ["Coverage and overlap asked for", `${r.two ? "200" : "100"} % · ${fmt(p.sidelap)} %`, `100 % · ${fmt(p.mbOverlap)} %`],
+    ["Line spacing it needs alone", `${fmt(r.sSSr)} m`, `${fmt(r.sMBr)} m`],
+    ["Lines if surveyed alone", `${r.nSS}`, `${r.nMB}`],
+    ["Overlap at the shared spacing", `${pc(r.ssOv)} %`, `${pc(r.mbOv)} %`],
+    ["Least coverage across the width", `${fmt(r.minSS*100)} %`, `${fmt(r.minMB*100)} %`],
+    ["Speed limit", `${fmt(r.vmaxSS, 1)} kn`, isFinite(r.vmaxMB) ? `${fmt(r.vmaxMB, 1)} kn` : "none"]
+  ];
+  $("cmpTable").innerHTML = `<thead><tr><th>At the shared spacing of ${sp} m</th><th>Side scan${r.gov === "ss" ? " ◂" : ""}</th><th>Multibeam${r.gov === "mb" ? " ◂" : ""}</th></tr></thead><tbody>` +
+    rows.map(q => `<tr><td style="white-space:normal">${q[0]}</td><td>${q[1]}</td><td>${q[2]}</td></tr>`).join("") + "</tbody>";
+  const A = r.ssAlone, B = r.mbAlone;
+  $("saveTable").innerHTML = `<thead><tr><th>Survey</th><th>Lines</th><th>Speed</th><th>Hours</th></tr></thead><tbody>` +
+    `<tr><td>Side scan alone</td><td>${A.n}</td><td>${fmt(p.speed, 1)} kn</td><td>${fmt(A.hrs.total, 1)}</td></tr>` +
+    `<tr><td>Multibeam alone</td><td>${B.n}${B.nX ? " + " + B.nX : ""}</td><td>${fmt(p.mbSpeed, 1)} kn</td><td>${fmt(B.hrs.total, 1)}</td></tr>` +
+    `<tr class="sub"><td>Two separate surveys</td><td></td><td></td><td>${fmt(r.sepTotal, 1)}</td></tr>` +
+    `<tr class="tot"><td>Simultaneous</td><td>${r.n}${r.nX ? " + " + r.nX : ""}</td><td>${fmt(p.speed, 1)} kn</td><td>${fmt(hr.total, 1)}</td></tr></tbody>`;
+  $("saveNote").textContent = r.saving >= 0
+    ? `Running both together saves about ${fmt(r.saving, 1)} h (${fmt(r.saving/r.sepTotal*100)} %). Each separate survey carries its own ${fmt(p.pre, 1)} h of mobilisation and ${fmt(p.cont)} % contingency.`
+    : `Running both together takes about ${fmt(-r.saving, 1)} h longer than two separate surveys here: the multibeam is held to towing speed and to the side scan's wide turns. Separate surveys may suit this job better.`;
+
+  $("checks").innerHTML = chk.map(([s, t]) => `<li>${pill(s, s === "ok" ? "OK" : s === "warn" ? "Check" : s === "info" ? "Note" : "Fail")}<span>${t}</span></li>`).join("");
+  $("chkCount").textContent = nFail ? `${nFail} to fix · ${nWarn} to check` : nWarn ? `${nWarn} to check` : "All clear";
+
+  $("planWrap").innerHTML = planSVG(r, pageC);
+  $("planNote").textContent = `${p.mode === "route" ? "Corridor" : "Area"} ${fmt(r.corridor)} m × ${fmt(r.length)} m (${fmt(r.corridor*r.length/1e6, 2)} km²) · ${r.seq.length} lines in run order`;
+  $("planLegend").innerHTML = [["var(--seta)","Lines run up-KP"],["var(--setb)","Lines run down-KP"], ...(r.nX ? [["var(--hf)","Cross lines"]] : []),
+    ["var(--muted)","Run-in, layback + overrun, and turns (dashed)"],["var(--water)", p.mode === "route" ? "Corridor along the route" : "Survey area"], ...(r.ext > 0 ? [["var(--panel-2)","Line extensions"]] : [])]
+    .map(([c, t]) => `<span><span class="sw" style="background:${c};border:1px solid var(--line)"></span>${esc(t)}</span>`).join("");
+
+  const hrows = [["Mobilisation, patch test and deployment", hr.pre, "var(--muted)"], ["Main lines · both sonars on line", hr.data, "var(--seta)"],
+    ["Main lines · run-in, layback and overrun", hr.run, "var(--setb)"], ...(r.nX ? [[`Cross lines (${r.nX})`, hr.cross, "var(--hf)"]] : []),
+    [`Line changes (${r.seq.length - 1})`, hr.turns, "var(--setb)"], [`Sound velocity casts (${hr.svpN})`, hr.svp, "var(--hf)"], [`Infill and re-runs (${fmt(p.infill)} %)`, hr.infill, "var(--hf)"]];
+  $("hrsTable").innerHTML = `<thead><tr><th>Item</th><th>Hours</th><th>Min</th></tr></thead><tbody>` +
+    hrows.map(([t, h, c]) => `<tr><td><span class="dot" style="background:${c}"></span>${esc(t)}</td><td>${fmt(h, 2)}</td><td>${fmt(h*60)}</td></tr>`).join("") +
+    `<tr class="sub"><td>Subtotal</td><td>${fmt(hr.subtotal, 2)}</td><td>${fmt(hr.subtotal*60)}</td></tr>` +
+    `<tr><td><span class="dot" style="background:var(--accent)"></span>Weather and downtime (${fmt(p.cont)} %)</td><td>${fmt(hr.cont, 2)}</td><td>${fmt(hr.cont*60)}</td></tr>` +
+    `<tr class="tot"><td>Total · ${fmt(hr.days, 2)} day</td><td>${fmt(hr.total, 2)}</td><td>${fmt(hr.total*60)}</td></tr></tbody>`;
+  const seg = [[hr.pre, "var(--muted)", "Mobilisation"], [hr.data, "var(--seta)", "On line"], [hr.run + hr.turns, "var(--setb)", "Run-ins, overruns, turns"], [hr.cross + hr.svp + hr.infill, "var(--hf)", "Cross lines, SVP and infill"], [hr.cont, "var(--accent)", "Contingency"]];
+  $("hrsBar").innerHTML = seg.map(([v, c, t]) => `<span style="width:${(v/hr.total*100).toFixed(2)}%;background:${c}" title="${t}: ${fmt(v, 2)} h"></span>`).join("");
+  $("hrsNote").textContent = `On-line time ${fmt(hr.data/hr.total*100)} % of total`;
+
+  $("linesTable").innerHTML = `<thead><tr><th>#</th><th class="l">Line</th><th>Offset</th><th class="l">KP start → end</th><th>Data m</th><th>Vessel on line m</th><th>Turn to next m</th></tr></thead><tbody>` +
+    r.seq.map(l => l.kind === "main"
+      ? `<tr><td>${l.order}</td><td class="l">${esc(l.name)}</td><td>${sideTxt(l.off, 1)}</td><td class="l">${(l.a[1]/1000).toFixed(3)} ${l.dir > 0 ? "→" : "←"} ${(l.b[1]/1000).toFixed(3)}</td><td>${fmt(l.len)}</td><td>${fmt(l.vessel)}</td><td>${fmt(l.turn)}</td></tr>`
+      : `<tr><td>${l.order}</td><td class="l">${esc(l.name)}</td><td>${sideTxt(l.a[0])} → ${sideTxt(l.b[0])}</td><td class="l">${(l.kp/1000).toFixed(3)} · across</td><td>${fmt(l.len)}</td><td>${fmt(l.vessel)}</td><td>${fmt(l.turn)}</td></tr>`).join("") +
+    `<tr class="sub"><td></td><td class="l">Total</td><td></td><td></td><td>${fmt(r.dataKm*1000)}</td><td></td><td></td></tr></tbody>`;
+}
+
+/* ---------- exports ---------- */
+function toGrid(off, y, p){ const b = (p.brg || 0)*D2R; return [(p.e0 || 0) + y*Math.sin(b) + off*Math.cos(b), (p.n0 || 0) + y*Math.cos(b) - off*Math.sin(b)]; }
+function csvText(r){
+  const p = r.p, head = ["order","line","type","direction","start_offset_m","start_KP_m","end_offset_m","end_KP_m","data_length_m","sss_range_m","fish_altitude_m","cable_out_m","layback_m","mbes_sector_deg","vessel_on_line_m","turn_to_next_m","SOL_E","SOL_N","EOL_E","EOL_N"];
+  const rows = r.seq.map(l => { const s = toGrid(l.a[0], l.a[1], p), e = toGrid(l.b[0], l.b[1], p);
+    return [l.order, l.name, l.kind, l.kind === "cross" ? "across" : l.dir > 0 ? "up-KP" : "down-KP", l.a[0].toFixed(2), l.a[1].toFixed(1), l.b[0].toFixed(2), l.b[1].toFixed(1), l.len.toFixed(0),
+      r.R, r.h, r.t0.reached ? r.CO : "", r.t0.reached ? r.LB : "", (r.aE*2/D2R).toFixed(1), l.vessel.toFixed(0), l.turn.toFixed(0), s[0].toFixed(2), s[1].toFixed(2), e[0].toFixed(2), e[1].toFixed(2)]; });
+  return [head, ...rows].map(q => q.join(",")).join("\r\n") + "\r\n";
+}
+function dxfText(r){
+  const p = r.p, out = [], Pp = (cc, v) => out.push(String(cc), String(v));
+  const line = (layer, col, a, b) => { Pp(0,"LINE"); Pp(8,layer); Pp(62,col); Pp(10,a[0].toFixed(3)); Pp(20,a[1].toFixed(3)); Pp(30,0); Pp(11,b[0].toFixed(3)); Pp(21,b[1].toFixed(3)); Pp(31,0); };
+  const text = (layer, col, at, h, s, rot) => { Pp(0,"TEXT"); Pp(8,layer); Pp(62,col); Pp(10,at[0].toFixed(3)); Pp(20,at[1].toFixed(3)); Pp(30,0); Pp(40,h); Pp(1,s); Pp(50, rot.toFixed(2)); };
+  Pp(0,"SECTION"); Pp(2,"ENTITIES");
+  const g = q => toGrid(q[0], q[1], p), L = r.length, hw = r.half, th = Math.max(1, Math.min(10, r.S/10));
+  line("ROUTE_CL", 1, g([0,0]), g([0,L]));
+  line("SURVEY_LIMIT", 6, g([-hw,0]), g([-hw,L])); line("SURVEY_LIMIT", 6, g([hw,0]), g([hw,L]));
+  line("SURVEY_LIMIT", 6, g([-hw,0]), g([hw,0])); line("SURVEY_LIMIT", 6, g([-hw,L]), g([hw,L]));
+  r.seq.forEach(l => { const lay = l.kind === "cross" ? "CROSS_LINES" : "SSS_MBES_LINES", col = l.kind === "cross" ? 3 : 5;
+    line(lay, col, g(l.a), g(l.b));
+    line("VESSEL_RUNIN_OVERRUN", 8, g(l.join), g(l.a)); line("VESSEL_RUNIN_OVERRUN", 8, g(l.b), g(l.vend));
+    const ah = Math.min(20, th*2), nn = [-l.u[1], l.u[0]];
+    line(lay, col, g([l.b[0]-l.u[0]*ah+nn[0]*ah*0.4, l.b[1]-l.u[1]*ah+nn[1]*ah*0.4]), g(l.b)); line(lay, col, g([l.b[0]-l.u[0]*ah-nn[0]*ah*0.4, l.b[1]-l.u[1]*ah-nn[1]*ah*0.4]), g(l.b));
+    text("LABELS", 7, g([(l.a[0]+l.b[0])/2, (l.a[1]+l.b[1])/2]), th, `${String(l.order).padStart(2,"0")} ${l.name}`, l.kind === "cross" ? -(p.brg||0) : 90 - (p.brg||0)); });
+  Pp(0,"ENDSEC"); Pp(0,"EOF");
+  return out.join("\r\n") + "\r\n";
+}
+
+function summaryText(r){
+  const p = r.p, h = r.hrs;
+  return [
+    `Simultaneous SSS + MBES run-line plan: ${r.SM.label} (${fmt(r.ch.f)} kHz) with ${r.MB.label} (${p.mbFreq} kHz)`,
+    `${p.mode === "route" ? `Route ${fmt(r.length/1000, 2)} km, corridor ${fmt(r.corridor)} m` : `Area ${fmt(r.corridor)} m wide × ${fmt(r.length)} m long`}, water depth ${fmt(p.wd)} m`,
+    `Shared line spacing ${fmt(r.S, 1)} m, governed by ${r.gov === "ss" ? "side scan" : "multibeam"} (SSS alone ${fmt(r.sSSr)} m, MBES alone ${fmt(r.sMBr)} m); ${r.n} lines${r.nX ? ` + ${r.nX} cross lines` : ""}, ${fmt(r.dataKm, 1)} km of line`,
+    `Side scan: range ${fmt(r.R)} m, altitude ${fmt(r.h, 1)} m, swath ${fmt(r.Ws)} m, ${r.two ? "200" : "100"} % coverage, overlap ${fmt(r.ssOv*100, 1)} %, nadir gap ${fmt(2*r.xin, 1)} m (${r.nadirSS ? "imaged by neighbouring lines" : r.nadirMB ? "covered by multibeam only" : "open"})`,
+    `Multibeam: sector ${fmt(r.aE*2/D2R, 1)}°, swath ${fmt(r.Wm, 1)} m, overlap ${fmt(r.mbOv*100, 1)} %, ${r.O.label}`,
+    `Speed ${fmt(p.speed, 1)} kn (limits: SSS ${fmt(r.vmaxSS, 1)} kn, MBES ${isFinite(r.vmaxMB) ? fmt(r.vmaxMB, 1) + " kn" : "none"})${r.t0.reached ? `; cable out ${fmt(r.CO)} m, layback ${fmt(r.LB)} m` : ""}`,
+    `Hours: ${fmt(h.subtotal, 2)} h + contingency ${fmt(p.cont)} % = ${fmt(h.total, 2)} h (${fmt(h.days, 2)} day); two separate surveys ${fmt(r.sepTotal, 1)} h`
+  ].join("\n");
+}
+let toastT;
+function toast(msg, bad){ const t = $("toast"); t.textContent = msg; t.style.color = bad ? "var(--bad)" : "var(--ok)"; clearTimeout(toastT); toastT = setTimeout(() => t.textContent = "", 4000); }
+let downloads = null;
+async function saveFile(filename, data){
+  if (!downloads) return;
+  try { await downloads.save({filename, data}); toast(`Saved ${filename}`); }
+  catch (e) { const code = e && e.code;
+    if (code === "declined") toast("Download cancelled."); else if (code === "rate_limited") toast("Another save is waiting for your answer.", true); else toast("This view can't save files.", true); }
+}
+$("csvBtn").addEventListener("click", () => LAST && saveFile("sss_mbes_runlines.csv", csvText(LAST)));
+$("dxfBtn").addEventListener("click", async () => {
+  if (!LAST) return;
+  if (!window.JSZip){ toast("The zip library did not load, so the DXF can't be packed.", true); return; }
+  const zip = new JSZip(); zip.file("sss_mbes_runlines.dxf", dxfText(LAST)); zip.file("sss_mbes_runlines.csv", csvText(LAST));
+  saveFile("sss_mbes_runlines_dxf.zip", await zip.generateAsync({type:"blob"}));
+});
+$("pngBtn").addEventListener("click", () => {
+  if (!LAST) return;
+  const svg = planSVG(LAST, resolvedC()), mm = svg.match(/viewBox="0 0 (\d+) (\d+)"/), w = +mm[1], h = +mm[2], k = 2, img = new Image();
+  img.onload = () => { const cv = document.createElement("canvas"); cv.width = w*k; cv.height = h*k;
+    const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+    cv.toBlob(b => b ? saveFile("sss_mbes_runline_plan.png", b) : toast("The picture could not be made.", true), "image/png"); };
+  img.onerror = () => toast("The picture could not be made.", true);
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg.replace("<svg ", `<svg width="${w}" height="${h}" `));
+});
+$("svgBtn").addEventListener("click", () => LAST && saveFile("sss_mbes_front_view_swath.svg", frontSVG(LAST, resolvedC())));
+$("copyBtn").addEventListener("click", () => {
+  if (!LAST) return; const txt = summaryText(LAST);
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(() => toast("Summary copied."), () => fallbackCopy(txt));
+  else fallbackCopy(txt);
+});
+function fallbackCopy(txt){
+  const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select();
+  let ok = false; try { ok = document.execCommand("copy"); } catch(e){}
+  document.body.removeChild(ta); toast(ok ? "Summary copied." : "Copy is blocked here. Select the run-line table instead.", !ok);
+}
+(async () => {
+  try {
+    if (window.claude && typeof window.claude.use === "function") downloads = await window.claude.use("downloads");
+    else downloads = { save: async ({filename, data}) => {
+      const blob = data instanceof Blob ? data : new Blob([data], {type:"application/octet-stream"});
+      const url = URL.createObjectURL(blob), a = document.createElement("a");
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000); return {status:"saved"}; }};
+    if (downloads) ["csvBtn","dxfBtn","svgBtn","pngBtn"].forEach(id => $(id).hidden = false);
+  } catch(e){ downloads = null; }
+})();
+
+
+/* ---------- storage (per-viewer convenience) ---------- */
+const KEY = "sss-mbes-combined-planner-v1";
+let saveT;
+function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(snapshot())); } catch(e){} }, 400); }
+function snapshot(){ const o = {}; [...NUM_IDS, ...SEL_IDS].forEach(id => o[id] = $(id).value);
+  for (const [k, ids] of Object.entries(RADIO)) o[k] = ($(ids.find(i => $(i).checked)) || $(ids[0])).value; return o; }
+
+/* ---------- wiring ---------- */
+$("mbModel").innerHTML = Object.entries(MBM).map(([k, m]) => `<option value="${k}">${esc(m.label)}</option>`).join("");
+$("ssModel").innerHTML = Object.entries(SSM).map(([k, m]) => `<option value="${k}">${esc(m.label)}</option>`).join("");
+$("order").innerHTML = Object.entries(ORDERS).map(([k, o]) => `<option value="${k}">${esc(o.label)}</option>`).join("");
+let raf = 0;
+function schedule(){ if (raf) return; raf = requestAnimationFrame(() => { raf = 0; try { render(); } catch(e){ console.error(e); } }); }
+function ssDefaults(){ const {ch} = models(readParams()), R = defRange(ch); $("range").value = R; $("alt").value = Math.round(R*0.1*2)/2; }
+$("mbModel").addEventListener("change", () => { populateMb(); $("mbFreq").value = String((MBM[$("mbModel").value] || MBM["R2-2024"]).def); commitLimits(); schedule(); });
+$("ssModel").addEventListener("change", () => { populateSs(); ssDefaults(); commitLimits(); schedule(); });
+$("channel").addEventListener("change", () => { ssDefaults(); commitLimits(); schedule(); });
+$("alt10").addEventListener("click", () => { const R = parseFloat($("range").value); if (isFinite(R)) { $("alt").value = Math.round(R*0.1*2)/2; commitLimits(); schedule(); } });
+$("resetBtn").addEventListener("click", () => { try { localStorage.removeItem(KEY); } catch(e){} writeParams(DEFAULTS); schedule(); });
+$("form").addEventListener("input", schedule);
+$("form").addEventListener("change", () => { commitLimits(); schedule(); });
+$("form").addEventListener("submit", e => e.preventDefault());
+let start = DEFAULTS;
+try { const s = localStorage.getItem(KEY); if (s) { const o = JSON.parse(s); if (o && MBM[o.mbModel] && SSM[o.ssModel]) start = Object.assign({}, DEFAULTS, o); } } catch(e){}
+writeParams(start);
+render();
+})();
+<\/script>
+</body>
+</html>
+</script>
+
+<!-- ============================ 4 · SUB-BOTTOM PROFILER QUICK VIEW ============================ -->
 <script type="text/plain" id="src-sbp">
 <!DOCTYPE html>
 <html lang="en">
@@ -3871,7 +4828,7 @@ drawAll();
 </html>
 </script>
 
-<!-- ============================ 4 · POINT CLOUD GEOSPATIAL DASHBOARD ============================ -->
+<!-- ============================ 5 · POINT CLOUD GEOSPATIAL DASHBOARD ============================ -->
 <script type="text/plain" id="src-cloud">
 <!DOCTYPE html>
 <html lang="en">
@@ -5371,6 +6328,7 @@ updateLegend();
 var TOOLS = [
   {id:"sss",   label:"Side Scan Planner",     title:"Side Scan Run-line Planner"},
   {id:"mbes",  label:"Multibeam Planner",     title:"Multibeam Run-line Planner"},
+  {id:"combo", label:"SSS + MBES Planner",    title:"Side Scan + Multibeam Simultaneous Run-line Planner"},
   {id:"sbp",   label:"SBP Quick View",        title:"Sub-Bottom Profiler SEG-Y Quick View"},
   {id:"cloud", label:"Point Cloud Dashboard", title:"Point Cloud Geospatial Dashboard"}
 ];
